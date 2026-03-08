@@ -3,7 +3,7 @@
     "name": "SKIDS Screen",
     "slug": "skids-screen",
     "version": "3.0.0",
-    "sdkVersion": "52.0.0",
+    "sdkVersion": "54.0.0",
     "scheme": "skids-screen",
     "platforms": ["android"],
     "orientation": "portrait",
