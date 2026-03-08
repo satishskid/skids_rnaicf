@@ -1,6 +1,8 @@
 name = "skids-api"
 main = "src/index.ts"
 compatibility_date = "2025-03-08"
+compatibility_flags = ["nodejs_compat"]
+account_id = "9f4998a66a5d7bd7a230d0222544fbe6"
 
 [vars]
 ENVIRONMENT = "production"

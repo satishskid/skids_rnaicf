@@ -1,0 +1,51 @@
+{
+  "expo": {
+    "name": "SKIDS Screen",
+    "slug": "skids-screen",
+    "version": "3.0.0",
+    "sdkVersion": "54.0.0",
+    "scheme": "skids-screen",
+    "platforms": ["android"],
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "splash": {
+      "image": "./assets/splash.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#3b82f6"
+    },
+    "android": {
+      "package": "com.skids.screen",
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/adaptive-icon.png",
+        "backgroundColor": "#3b82f6"
+      },
+      "permissions": [
+        "CAMERA",
+        "RECORD_AUDIO",
+        "BLUETOOTH",
+        "BLUETOOTH_ADMIN",
+        "BLUETOOTH_CONNECT",
+        "BLUETOOTH_SCAN",
+        "NFC",
+        "INTERNET",
+        "ACCESS_NETWORK_STATE"
+      ]
+    },
+    "plugins": [
+      "expo-router",
+      "expo-secure-store"
+    ],
+    "experiments": {
+      "typedRoutes": true
+    },
+    "updates": {
+      "url": "https://u.expo.dev/skids-screen"
+    },
+    "extra": {
+      "eas": {
+        "projectId": "skids-screen"
+      },
+      "apiBaseUrl": "https://skids-api.satish-9f4.workers.dev"
+    }
+  }
+}

@@ -1,0 +1,12 @@
+{
+  "extends": "expo/tsconfig.base",
+  "compilerOptions": {
+    "strict": true,
+    "paths": {
+      "@skids/shared": ["../../packages/shared/src"],
+      "@skids/api-client": ["../../packages/api-client/src"],
+      "@/*": ["./src/*"]
+    }
+  },
+  "include": ["**/*.ts", "**/*.tsx", "src/**/*"]
+}

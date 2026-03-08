@@ -10,6 +10,7 @@ import { observationRoutes } from './routes/observations'
 import { reviewRoutes } from './routes/reviews'
 import { healthRoutes } from './routes/health'
 import { createTursoClient } from '@skids/db'
+import { createAuth } from './auth'
 import type { Client } from '@libsql/client'
 
 // Cloudflare Workers bindings
@@ -20,6 +21,9 @@ export type Bindings = {
   BETTER_AUTH_API_KEY: string
   BETTER_AUTH_URL: string
   ENVIRONMENT: string
+  LANGFUSE_SECRET_KEY: string
+  LANGFUSE_PUBLIC_KEY: string
+  LANGFUSE_BASE_URL: string
   // R2_BUCKET: R2Bucket  // uncomment when ready
   // AI: Ai              // uncomment when ready
 }
@@ -48,6 +52,13 @@ app.use('*', async (c, next) => {
   })
   c.set('db', db)
   await next()
+})
+
+// ── Better Auth handler ─────────────────────
+// Handles: /api/auth/* (login, register, session, OAuth, org)
+app.all('/api/auth/*', async (c) => {
+  const auth = createAuth(c.env)
+  return auth.handler(c.req.raw)
 })
 
 // ── Routes ──────────────────────────────────
