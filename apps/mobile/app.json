@@ -3,7 +3,7 @@
     "name": "SKIDS Screen",
     "slug": "skids-screen",
     "version": "3.0.0",
-    "sdkVersion": "54.0.0",
+    "sdkVersion": "52.0.0",
     "scheme": "skids-screen",
     "platforms": ["android"],
     "orientation": "portrait",
@@ -11,13 +11,13 @@
     "splash": {
       "image": "./assets/splash.png",
       "resizeMode": "contain",
-      "backgroundColor": "#3b82f6"
+      "backgroundColor": "#2563eb"
     },
     "android": {
       "package": "com.skids.screen",
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
-        "backgroundColor": "#3b82f6"
+        "backgroundColor": "#2563eb"
       },
       "permissions": [
         "CAMERA",
@@ -31,22 +31,7 @@
         "ACCESS_NETWORK_STATE"
       ]
     },
-    "plugins": [
-      "expo-secure-store",
-      [
-        "expo-camera",
-        {
-          "cameraPermission": "SKIDS Screen needs camera access for health screenings."
-        }
-      ]
-    ],
-    "updates": {
-      "url": "https://u.expo.dev/skids-screen"
-    },
     "extra": {
-      "eas": {
-        "projectId": "skids-screen"
-      },
       "apiBaseUrl": "https://skids-api.satish-9f4.workers.dev"
     }
   }
