@@ -1,0 +1,20 @@
+{
+  "name": "skids-screen-v3",
+  "version": "3.0.0",
+  "private": true,
+  "description": "SKIDS Screen — Pediatric Health Screening Platform (V3: Hono + Turso + Better Auth)",
+  "scripts": {
+    "dev": "turbo dev",
+    "build": "turbo build",
+    "lint": "turbo lint",
+    "typecheck": "turbo typecheck",
+    "dev:worker": "pnpm --filter @skids/worker dev",
+    "dev:web": "pnpm --filter @skids/web dev",
+    "deploy:worker": "pnpm --filter @skids/worker deploy"
+  },
+  "devDependencies": {
+    "turbo": "^2.5.0",
+    "typescript": "^5.8.0"
+  },
+  "packageManager": "pnpm@10.29.3"
+}

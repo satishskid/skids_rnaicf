@@ -1,0 +1,21 @@
+name = "skids-api"
+main = "src/index.ts"
+compatibility_date = "2025-03-08"
+
+[vars]
+ENVIRONMENT = "production"
+
+# Turso + Better Auth secrets are set via:
+#   wrangler secret put TURSO_URL
+#   wrangler secret put TURSO_AUTH_TOKEN
+#   wrangler secret put BETTER_AUTH_SECRET
+#   wrangler secret put BETTER_AUTH_API_KEY
+
+# R2 bucket for media uploads
+# [[r2_buckets]]
+# binding = "R2_BUCKET"
+# bucket_name = "skids-media"
+
+# AI Gateway (uncomment when ready)
+# [ai]
+# binding = "AI"
