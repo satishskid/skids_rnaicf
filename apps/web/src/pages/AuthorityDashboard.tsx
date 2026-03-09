@@ -65,7 +65,7 @@ export function AuthorityDashboardPage() {
   const { data, isLoading: campaignsLoading } =
     useApi<CampaignsResponse>('/api/campaigns')
 
-  const allCampaigns = data?.campaigns ?? []
+  const allCampaigns = useMemo(() => data?.campaigns ?? [], [data])
   const [selectedCodes, setSelectedCodes] = useState<Set<string>>(new Set())
   const [aggregations, setAggregations] = useState<CampaignAggregation[]>([])
   const [fetching, setFetching] = useState(false)

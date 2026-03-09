@@ -1,6 +1,7 @@
 import { BrowserRouter, Routes, Route } from 'react-router-dom'
 import { AuthProvider } from './lib/auth'
 import { Layout } from './components/Layout'
+import { DocsLayout } from './components/DocsLayout'
 import { LoginPage } from './pages/Login'
 import { DashboardPage } from './pages/Dashboard'
 import { CampaignsPage } from './pages/Campaigns'
@@ -10,6 +11,12 @@ import { SettingsPage } from './pages/Settings'
 import { DoctorInboxPage } from './pages/DoctorInbox'
 import { AuthorityDashboardPage } from './pages/AuthorityDashboard'
 import { FourDReportPage } from './pages/FourDReport'
+import { DocsHubPage } from './pages/docs/DocsHub'
+import { QuickStartPage } from './pages/docs/QuickStart'
+import { FieldGuidePage } from './pages/docs/FieldGuide'
+import { OpsManualPage } from './pages/docs/OpsManual'
+import { ClinicalReferencePage } from './pages/docs/ClinicalReference'
+import { TechManualPage } from './pages/docs/TechManual'
 
 export function App() {
   return (
@@ -29,6 +36,16 @@ export function App() {
             <Route path="/authority" element={<AuthorityDashboardPage />} />
             <Route path="/analytics" element={<AnalyticsPage />} />
             <Route path="/settings" element={<SettingsPage />} />
+          </Route>
+
+          {/* Documentation pages with docs layout */}
+          <Route element={<DocsLayout />}>
+            <Route path="/docs" element={<DocsHubPage />} />
+            <Route path="/docs/quick-start" element={<QuickStartPage />} />
+            <Route path="/docs/field-guide" element={<FieldGuidePage />} />
+            <Route path="/docs/ops-manual" element={<OpsManualPage />} />
+            <Route path="/docs/clinical-reference" element={<ClinicalReferencePage />} />
+            <Route path="/docs/tech-manual" element={<TechManualPage />} />
           </Route>
         </Routes>
       </BrowserRouter>

@@ -11,6 +11,10 @@ import { reviewRoutes } from './routes/reviews'
 import { healthRoutes } from './routes/health'
 import { adminRoutes } from './routes/admin'
 import { trainingRoutes } from './routes/training'
+import { r2Routes } from './routes/r2'
+import { ayusyncRoutes } from './routes/ayusync'
+import { welchallynRoutes } from './routes/welchallyn'
+import { awsProxyRoutes } from './routes/aws-proxy'
 import { createTursoClient } from '@skids/db'
 import { createAuth } from './auth'
 import { authMiddleware, requireRole } from './middleware/auth'
@@ -27,7 +31,14 @@ export type Bindings = {
   LANGFUSE_SECRET_KEY: string
   LANGFUSE_PUBLIC_KEY: string
   LANGFUSE_BASE_URL: string
-  // R2_BUCKET: R2Bucket  // uncomment when ready
+  // R2 media uploads
+  CLOUDFLARE_R2_ACCESS_KEY_ID: string
+  CLOUDFLARE_R2_SECRET_ACCESS_KEY: string
+  CLOUDFLARE_R2_ENDPOINT: string
+  CLOUDFLARE_R2_BUCKET: string
+  R2_BUCKET: R2Bucket
+  // AyuSynk webhook
+  AYUSYNC_WEBHOOK_SECRET: string
   // AI: Ai              // uncomment when ready
 }
 
@@ -109,6 +120,23 @@ app.route('/api/admin', adminRoutes)
 app.use('/api/training', authMiddleware)
 app.use('/api/training/*', authMiddleware)
 app.route('/api', trainingRoutes)
+
+// R2 presigned upload — require auth
+app.use('/api/r2', authMiddleware)
+app.use('/api/r2/*', authMiddleware)
+app.route('/api/r2', r2Routes)
+
+// AyuSynk — webhook POST is public, GET is auth-protected per-handler
+// Do NOT add authMiddleware here (POST is a server-to-server webhook)
+app.route('/api/ayusync', ayusyncRoutes)
+
+// Welch Allyn — mounted under /api/campaigns (already auth-protected above)
+app.route('/api/campaigns', welchallynRoutes)
+
+// AWS API proxy — require auth
+app.use('/api/aws-proxy', authMiddleware)
+app.use('/api/aws-proxy/*', authMiddleware)
+app.route('/api/aws-proxy', awsProxyRoutes)
 
 // Root
 app.get('/', (c) => {

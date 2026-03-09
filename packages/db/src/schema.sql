@@ -146,3 +146,18 @@ CREATE TABLE IF NOT EXISTS training_samples (
 );
 CREATE INDEX IF NOT EXISTS idx_training_campaign ON training_samples(campaign_code);
 CREATE INDEX IF NOT EXISTS idx_training_module ON training_samples(module_type);
+
+-- AyuSynk AI diagnosis reports (heart/lung analysis from AyuShare)
+CREATE TABLE IF NOT EXISTS ayusync_reports (
+  id TEXT PRIMARY KEY,
+  campaign_code TEXT NOT NULL,
+  child_id TEXT NOT NULL,
+  reference_id TEXT NOT NULL,
+  status TEXT NOT NULL DEFAULT 'unknown',
+  reports TEXT NOT NULL,            -- JSON array of AyuSynkReport objects
+  source TEXT NOT NULL DEFAULT 'ayushare_webhook',
+  processed INTEGER DEFAULT 0,     -- 0 = pending, 1 = linked to observation
+  received_at TEXT DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_ayusync_campaign ON ayusync_reports(campaign_code);
+CREATE INDEX IF NOT EXISTS idx_ayusync_child ON ayusync_reports(campaign_code, child_id);
