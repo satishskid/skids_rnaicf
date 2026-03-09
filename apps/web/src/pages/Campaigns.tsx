@@ -9,12 +9,28 @@ import {
   Megaphone,
   X,
   Loader2,
+  Building,
+  Apple,
+  Settings,
+  Check,
 } from 'lucide-react'
 import { StatusBadge } from '../components/StatusBadge'
 import { LoadingSpinner } from '../components/LoadingSpinner'
 import { EmptyState } from '../components/EmptyState'
 import { useApi, useDebounce } from '../lib/hooks'
 import { apiCall } from '../lib/api'
+import {
+  CAMPAIGN_TEMPLATES,
+  MODULE_CONFIGS,
+  getModuleName,
+  type CampaignType,
+} from '@skids/shared'
+
+const TEMPLATE_ICONS: Record<string, typeof Building> = {
+  Building,
+  Apple,
+  Settings,
+}
 
 interface CampaignRow {
   code: string
@@ -221,13 +237,37 @@ function CreateCampaignModal({
   const [schoolName, setSchoolName] = useState('')
   const [city, setCity] = useState('')
   const [state, setState] = useState('')
+  const [campaignType, setCampaignType] = useState<CampaignType>('school_health_4d')
+  const [selectedModules, setSelectedModules] = useState<string[]>(
+    CAMPAIGN_TEMPLATES[0].defaultModules,
+  )
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
+
+  function handleTypeChange(type: CampaignType) {
+    setCampaignType(type)
+    const template = CAMPAIGN_TEMPLATES.find((t) => t.type === type)
+    if (template) {
+      setSelectedModules([...template.defaultModules])
+    }
+  }
+
+  function toggleModule(moduleType: string) {
+    setSelectedModules((prev) =>
+      prev.includes(moduleType)
+        ? prev.filter((m) => m !== moduleType)
+        : [...prev, moduleType],
+    )
+  }
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault()
     if (!name.trim()) {
       setError('Campaign name is required.')
+      return
+    }
+    if (selectedModules.length === 0) {
+      setError('Select at least one screening module.')
       return
     }
 
@@ -240,11 +280,10 @@ function CreateCampaignModal({
         body: JSON.stringify({
           name: name.trim(),
           schoolName: schoolName.trim() || name.trim(),
-          campaignType: 'school_health_4d',
-          location: {
-            city: city.trim() || undefined,
-            state: state.trim() || undefined,
-          },
+          campaignType,
+          enabledModules: selectedModules,
+          city: city.trim() || undefined,
+          state: state.trim() || undefined,
         }),
       })
       onCreated()
@@ -255,10 +294,12 @@ function CreateCampaignModal({
     }
   }
 
+  const selectedTemplate = CAMPAIGN_TEMPLATES.find((t) => t.type === campaignType)
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
-      <div className="w-full max-w-lg rounded-xl bg-white shadow-xl">
-        <div className="flex items-center justify-between border-b border-gray-200 px-6 py-4">
+      <div className="max-h-[90vh] w-full max-w-2xl overflow-y-auto rounded-xl bg-white shadow-xl">
+        <div className="sticky top-0 z-10 flex items-center justify-between border-b border-gray-200 bg-white px-6 py-4">
           <h3 className="text-lg font-semibold text-gray-900">
             New Campaign
           </h3>
@@ -277,7 +318,59 @@ function CreateCampaignModal({
             </div>
           )}
 
-          <div className="space-y-4">
+          <div className="space-y-5">
+            {/* Campaign Type Selector */}
+            <div>
+              <label className="mb-2 block text-sm font-medium text-gray-700">
+                Campaign Type *
+              </label>
+              <div className="grid grid-cols-3 gap-3">
+                {CAMPAIGN_TEMPLATES.map((template) => {
+                  const Icon = TEMPLATE_ICONS[template.icon] || Building
+                  const isSelected = campaignType === template.type
+                  return (
+                    <button
+                      key={template.type}
+                      type="button"
+                      onClick={() => handleTypeChange(template.type)}
+                      className={`relative rounded-lg border-2 p-4 text-left transition-all ${
+                        isSelected
+                          ? 'border-blue-500 bg-blue-50'
+                          : 'border-gray-200 bg-white hover:border-gray-300'
+                      }`}
+                    >
+                      {isSelected && (
+                        <div className="absolute right-2 top-2 flex h-5 w-5 items-center justify-center rounded-full bg-blue-500">
+                          <Check className="h-3 w-3 text-white" />
+                        </div>
+                      )}
+                      <Icon
+                        className={`h-6 w-6 ${isSelected ? 'text-blue-600' : 'text-gray-400'}`}
+                      />
+                      <p
+                        className={`mt-2 text-sm font-semibold ${
+                          isSelected ? 'text-blue-900' : 'text-gray-900'
+                        }`}
+                      >
+                        {template.name}
+                      </p>
+                      <p className="mt-0.5 text-xs text-gray-500">
+                        {template.type === 'custom'
+                          ? 'Pick your modules'
+                          : `${template.defaultModules.length} modules`}
+                      </p>
+                    </button>
+                  )
+                })}
+              </div>
+              {selectedTemplate && (
+                <p className="mt-2 text-xs text-gray-500">
+                  {selectedTemplate.description}
+                </p>
+              )}
+            </div>
+
+            {/* Campaign Details */}
             <div>
               <label className="block text-sm font-medium text-gray-700">
                 Campaign Name *
@@ -328,6 +421,90 @@ function CreateCampaignModal({
                   className="mt-1 block w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm shadow-sm placeholder:text-gray-400 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
                   placeholder="e.g., Maharashtra"
                 />
+              </div>
+            </div>
+
+            {/* Module Selection */}
+            <div>
+              <div className="flex items-center justify-between">
+                <label className="block text-sm font-medium text-gray-700">
+                  Screening Modules ({selectedModules.length} selected)
+                </label>
+                {campaignType !== 'custom' && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (selectedModules.length === MODULE_CONFIGS.length) {
+                        setSelectedModules([])
+                      } else {
+                        setSelectedModules(MODULE_CONFIGS.map((m) => m.type))
+                      }
+                    }}
+                    className="text-xs font-medium text-blue-600 hover:text-blue-700"
+                  >
+                    {selectedModules.length === MODULE_CONFIGS.length
+                      ? 'Deselect all'
+                      : 'Select all'}
+                  </button>
+                )}
+              </div>
+
+              {/* Vitals group */}
+              <div className="mt-3">
+                <p className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-gray-400">
+                  Vitals & Measurements
+                </p>
+                <div className="flex flex-wrap gap-2">
+                  {MODULE_CONFIGS.filter((m) => m.group === 'vitals').map(
+                    (mod) => {
+                      const isSelected = selectedModules.includes(mod.type)
+                      return (
+                        <button
+                          key={mod.type}
+                          type="button"
+                          onClick={() => toggleModule(mod.type)}
+                          className={`flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-medium transition-all ${
+                            isSelected
+                              ? 'border-blue-200 bg-blue-50 text-blue-700'
+                              : 'border-gray-200 bg-white text-gray-500 hover:border-gray-300'
+                          }`}
+                        >
+                          {isSelected && <Check className="h-3 w-3" />}
+                          {mod.name}
+                        </button>
+                      )
+                    },
+                  )}
+                </div>
+              </div>
+
+              {/* Head-to-toe group */}
+              <div className="mt-3">
+                <p className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-gray-400">
+                  Head-to-Toe Examination
+                </p>
+                <div className="flex flex-wrap gap-2">
+                  {MODULE_CONFIGS.filter((m) => m.group === 'head_to_toe').map(
+                    (mod) => {
+                      const isSelected = selectedModules.includes(mod.type)
+                      return (
+                        <button
+                          key={mod.type}
+                          type="button"
+                          onClick={() => toggleModule(mod.type)}
+                          className={`flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-medium transition-all ${
+                            isSelected
+                              ? 'border-blue-200 bg-blue-50 text-blue-700'
+                              : 'border-gray-200 bg-white text-gray-500 hover:border-gray-300'
+                          }`}
+                        >
+                          {isSelected && <Check className="h-3 w-3" />}
+                          {mod.name}
+                        </button>
+                      )
+                    },
+                  )}
+                </div>
               </div>
             </div>
           </div>

@@ -43,10 +43,9 @@ app.use('*', logger())
 app.use('*', cors({
   origin: (origin) => {
     // Allow known web origins
+    // Allow any localhost port for dev
+    if (origin && origin.startsWith('http://localhost:')) return origin
     const allowed = [
-      'http://localhost:5173',
-      'http://localhost:3000',
-      'http://localhost:8081',
       'https://skids-ai.vercel.app',
       'https://skids-web.pages.dev',
     ]
@@ -56,6 +55,8 @@ app.use('*', cors({
     return 'https://skids-web.pages.dev'
   },
   credentials: true,
+  allowHeaders: ['Content-Type', 'Authorization'],
+  allowMethods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
 }))
 
 // Inject Turso client per request (CF Workers are stateless)

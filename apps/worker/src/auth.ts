@@ -4,7 +4,7 @@
 // Uses PBKDF2 hashing (fast on CF Workers free tier, 10ms CPU limit)
 
 import { betterAuth } from 'better-auth'
-import { organization } from 'better-auth/plugins'
+import { organization, bearer } from 'better-auth/plugins'
 import { LibsqlDialect } from '@libsql/kysely-libsql'
 import type { Bindings } from './index'
 
@@ -105,6 +105,7 @@ export function createAuth(env: Bindings) {
       },
     },
     plugins: [
+      bearer(), // Accept Authorization: Bearer tokens (converts to session cookie internally)
       organization({
         // Campaigns = Organizations
         // Each campaign has its own member roles
@@ -142,13 +143,15 @@ export function createAuth(env: Bindings) {
       }),
     ],
     trustedOrigins: [
-      'http://localhost:5173',          // web dev
-      'http://localhost:3000',          // alt dev
-      'http://localhost:8787',          // worker dev
-      'http://localhost:8788',          // worker dev alt
-      'https://skids-ai.vercel.app',   // V2 web
-      'https://skids-web.pages.dev',   // V3 web dashboard
-      'skids-screen://',               // mobile deep link
+      'http://localhost:5173',
+      'http://localhost:5199',
+      'http://localhost:3000',
+      'http://localhost:8081',
+      'http://localhost:8787',
+      'http://localhost:8788',
+      'https://skids-ai.vercel.app',
+      'https://skids-web.pages.dev',
+      'skids-screen://',
     ],
   })
 }

@@ -17,6 +17,7 @@ export async function apiCall<T = unknown>(
   const token = localStorage.getItem('auth_token')
   const res = await fetch(`${API_BASE}${path}`, {
     ...options,
+    credentials: 'include',
     headers: {
       'Content-Type': 'application/json',
       ...(token ? { Authorization: `Bearer ${token}` } : {}),
@@ -54,7 +55,7 @@ export async function signUp(name: string, email: string, password: string) {
 }
 
 export async function signIn(email: string, password: string) {
-  return apiCall<{ token: string; user: { id: string; name: string; email: string } }>(
+  return apiCall<{ token: string; user: { id: string; name: string; email: string; role?: string } }>(
     '/api/auth/sign-in/email',
     {
       method: 'POST',
@@ -86,8 +87,8 @@ export async function getCampaignByCode(code: string) {
 
 // ---- Children endpoints ----
 
-export async function getChildren(campaignId: string) {
-  return apiCall<{ children: unknown[] }>(`/api/children?campaign_id=${campaignId}`)
+export async function getChildren(campaignCode: string) {
+  return apiCall<{ children: unknown[] }>(`/api/children?campaign=${campaignCode}`)
 }
 
 export async function createChild(data: Record<string, unknown>) {
@@ -99,8 +100,8 @@ export async function createChild(data: Record<string, unknown>) {
 
 // ---- Observation endpoints ----
 
-export async function getObservations(campaignId: string) {
-  return apiCall<{ observations: unknown[] }>(`/api/observations?campaign_id=${campaignId}`)
+export async function getObservations(campaignCode: string) {
+  return apiCall<{ observations: unknown[] }>(`/api/observations?campaign=${campaignCode}`)
 }
 
 export async function createObservation(data: Record<string, unknown>) {
@@ -112,8 +113,8 @@ export async function createObservation(data: Record<string, unknown>) {
 
 // ---- Review endpoints ----
 
-export async function getReviews(campaignId: string) {
-  return apiCall<{ reviews: unknown[] }>(`/api/reviews?campaign_id=${campaignId}`)
+export async function getReviews(campaignCode: string) {
+  return apiCall<{ reviews: unknown[] }>(`/api/reviews?campaign=${campaignCode}`)
 }
 
 export async function createReview(data: Record<string, unknown>) {

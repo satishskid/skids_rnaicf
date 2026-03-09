@@ -12,6 +12,7 @@ interface AuthUser {
   id: string
   name: string
   email: string
+  role?: string
 }
 
 interface AuthContextValue {
@@ -51,10 +52,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setIsLoading(true)
     try {
       const result = await apiSignIn(email, password)
+      const u = result.user as Record<string, unknown> | undefined
       const authUser: AuthUser = {
-        id: result.user?.id ?? '',
-        name: result.user?.name ?? email.split('@')[0],
-        email: result.user?.email ?? email,
+        id: (u?.id as string) ?? '',
+        name: (u?.name as string) ?? email.split('@')[0],
+        email: (u?.email as string) ?? email,
+        role: (u?.role as string) ?? 'nurse',
       }
       if (result.token) {
         localStorage.setItem('auth_token', result.token)

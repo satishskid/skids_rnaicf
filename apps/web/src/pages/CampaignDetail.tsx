@@ -84,9 +84,8 @@ interface ReviewData {
   fourDFindings?: string[]
 }
 
-interface CampaignResponse {
-  campaign: CampaignData
-}
+// API returns flat campaign object (not wrapped)
+type CampaignResponse = CampaignData
 
 interface ChildrenResponse {
   children: ChildData[]
@@ -114,14 +113,10 @@ export function CampaignDetailPage() {
   const navigate = useNavigate()
   const [activeTab, setActiveTab] = useState<TabKey>('children')
 
-  const { data: campaignData, isLoading: campaignLoading, error: campaignError } =
+  const { data: campaign, isLoading: campaignLoading, error: campaignError } =
     useApi<CampaignResponse>(code ? `/api/campaigns/${code}` : null)
 
-  const campaign = campaignData?.campaign
-
-  // We use the campaign code as a proxy for campaign_id in queries.
-  // The API may accept campaign code or ID depending on implementation.
-  const campaignQuery = code ? `campaign_id=${code}` : ''
+  const campaignQuery = code ? `campaign=${code}` : ''
 
   const { data: childrenData, isLoading: childrenLoading } =
     useApi<ChildrenResponse>(code ? `/api/children?${campaignQuery}` : null)
