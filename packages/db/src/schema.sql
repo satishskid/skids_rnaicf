@@ -119,3 +119,30 @@ CREATE TABLE IF NOT EXISTS ai_usage (
   created_at TEXT DEFAULT (datetime('now'))
 );
 CREATE INDEX IF NOT EXISTS idx_ai_campaign ON ai_usage(campaign_code);
+
+-- Child absences (attendance tracking)
+CREATE TABLE IF NOT EXISTS absences (
+  id TEXT PRIMARY KEY,
+  child_id TEXT NOT NULL REFERENCES children(id),
+  campaign_code TEXT NOT NULL REFERENCES campaigns(code),
+  date TEXT NOT NULL,
+  reason TEXT,
+  marked_by TEXT NOT NULL,
+  created_at TEXT DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_absences_campaign ON absences(campaign_code);
+CREATE INDEX IF NOT EXISTS idx_absences_child ON absences(child_id);
+
+-- Training samples (doctor feedback for AI training)
+CREATE TABLE IF NOT EXISTS training_samples (
+  id TEXT PRIMARY KEY,
+  campaign_code TEXT NOT NULL REFERENCES campaigns(code),
+  observation_id TEXT NOT NULL REFERENCES observations(id),
+  doctor_id TEXT NOT NULL,
+  doctor_name TEXT,
+  feedback TEXT NOT NULL,  -- JSON: { agree: bool, corrections: {...}, notes: string }
+  module_type TEXT NOT NULL,
+  created_at TEXT DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_training_campaign ON training_samples(campaign_code);
+CREATE INDEX IF NOT EXISTS idx_training_module ON training_samples(module_type);

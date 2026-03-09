@@ -9,6 +9,8 @@ import { childrenRoutes } from './routes/children'
 import { observationRoutes } from './routes/observations'
 import { reviewRoutes } from './routes/reviews'
 import { healthRoutes } from './routes/health'
+import { adminRoutes } from './routes/admin'
+import { trainingRoutes } from './routes/training'
 import { createTursoClient } from '@skids/db'
 import { createAuth } from './auth'
 import { authMiddleware, requireRole } from './middleware/auth'
@@ -95,6 +97,18 @@ app.route('/api/campaigns', campaignRoutes)
 app.route('/api/children', childrenRoutes)
 app.route('/api/observations', observationRoutes)
 app.route('/api/reviews', reviewRoutes)
+
+// Admin routes — require admin role
+app.use('/api/admin', authMiddleware)
+app.use('/api/admin/*', authMiddleware)
+app.use('/api/admin', requireRole('admin'))
+app.use('/api/admin/*', requireRole('admin'))
+app.route('/api/admin', adminRoutes)
+
+// Training routes — require auth
+app.use('/api/training', authMiddleware)
+app.use('/api/training/*', authMiddleware)
+app.route('/api', trainingRoutes)
 
 // Root
 app.get('/', (c) => {

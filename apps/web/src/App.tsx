@@ -7,6 +7,9 @@ import { CampaignsPage } from './pages/Campaigns'
 import { CampaignDetailPage } from './pages/CampaignDetail'
 import { AnalyticsPage } from './pages/Analytics'
 import { SettingsPage } from './pages/Settings'
+import { DoctorInboxPage } from './pages/DoctorInbox'
+import { AuthorityDashboardPage } from './pages/AuthorityDashboard'
+import { FourDReportPage } from './pages/FourDReport'
 
 export function App() {
   return (
@@ -21,6 +24,9 @@ export function App() {
             <Route path="/" element={<DashboardPage />} />
             <Route path="/campaigns" element={<CampaignsPage />} />
             <Route path="/campaigns/:code" element={<CampaignDetailPage />} />
+            <Route path="/campaigns/:code/children/:childId/report" element={<FourDReportPage />} />
+            <Route path="/doctor-inbox" element={<DoctorInboxPage />} />
+            <Route path="/authority" element={<AuthorityDashboardPage />} />
             <Route path="/analytics" element={<AnalyticsPage />} />
             <Route path="/settings" element={<SettingsPage />} />
           </Route>

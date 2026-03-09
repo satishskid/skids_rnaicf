@@ -1,7 +1,7 @@
 // Campaign detail — shows campaign info, stats, registered children
 // Entry point for registering new children and starting screenings
 
-import React, { useState, useCallback, useEffect } from 'react'
+import React, { useState, useCallback, useEffect, useMemo } from 'react'
 import {
   View,
   Text,
@@ -56,8 +56,11 @@ export function CampaignDetailScreen({ navigation, route }: Props) {
     reviewsCount: 0,
   })
   const [children, setChildren] = useState<Child[]>([])
+  const [childModuleMap, setChildModuleMap] = useState<Record<string, Set<string>>>({})
   const [loading, setLoading] = useState(true)
   const [refreshing, setRefreshing] = useState(false)
+
+  const totalModules = campaign.enabledModules?.length || 27
 
   const fetchCampaignData = useCallback(async () => {
     try {
@@ -81,9 +84,23 @@ export function CampaignDetailScreen({ navigation, route }: Props) {
         { token: token || undefined }
       ).catch(() => ({ children: 0, observations: 0, reviews: 0 }))
 
+      // Fetch observations for progress tracking
+      const obsData = await apiCall<{ observations: Array<{ childId?: string; moduleType: string }> }>(
+        `/api/observations?campaign=${campaign.code}`,
+        { token: token || undefined }
+      ).catch(() => ({ observations: [] as Array<{ childId?: string; moduleType: string }> }))
+
+      const moduleMap: Record<string, Set<string>> = {}
+      for (const obs of obsData.observations) {
+        if (!obs.childId) continue
+        if (!moduleMap[obs.childId]) moduleMap[obs.childId] = new Set()
+        moduleMap[obs.childId].add(obs.moduleType)
+      }
+      setChildModuleMap(moduleMap)
+
       setStats({
         childrenCount: statsData.children || (childList as Child[]).length || campaign.totalChildren || 0,
-        observationsCount: statsData.observations || 0,
+        observationsCount: statsData.observations || obsData.observations.length || 0,
         reviewsCount: statsData.reviews || 0,
       })
     } catch {
@@ -188,6 +205,47 @@ export function CampaignDetailScreen({ navigation, route }: Props) {
           </View>
         </View>
 
+        {/* Screening Progress */}
+        {children.length > 0 && (
+          <View style={styles.progressSummary}>
+            <View style={styles.progressHeader}>
+              <Text style={styles.progressTitle}>Screening Progress</Text>
+              <Text style={styles.progressPercent}>
+                {children.length > 0
+                  ? Math.round(
+                      (Object.keys(childModuleMap).filter(
+                        (cid) => (childModuleMap[cid]?.size || 0) >= totalModules
+                      ).length / children.length) * 100
+                    )
+                  : 0}% complete
+              </Text>
+            </View>
+            <View style={styles.progressBarTrack}>
+              <View
+                style={[
+                  styles.progressBarFill,
+                  {
+                    width: `${
+                      children.length > 0
+                        ? Math.round(
+                            (Object.keys(childModuleMap).filter(
+                              (cid) => (childModuleMap[cid]?.size || 0) >= totalModules
+                            ).length / children.length) * 100
+                          )
+                        : 0
+                    }%`,
+                  },
+                ]}
+              />
+            </View>
+            <Text style={styles.progressSubtext}>
+              {Object.keys(childModuleMap).filter(
+                (cid) => (childModuleMap[cid]?.size || 0) >= totalModules
+              ).length} of {children.length} children fully screened
+            </Text>
+          </View>
+        )}
+
         {/* Action Buttons */}
         <View style={styles.actionRow}>
           <TouchableOpacity
@@ -251,23 +309,50 @@ export function CampaignDetailScreen({ navigation, route }: Props) {
               </Text>
             </View>
           ) : (
-            children.slice(0, 20).map((child) => (
-              <View key={child.id} style={styles.childRow}>
-                <View style={styles.childAvatar}>
-                  <Text style={styles.childAvatarText}>
-                    {child.name.charAt(0).toUpperCase()}
-                  </Text>
+            children.slice(0, 20).map((child) => {
+              const completedModules = childModuleMap[child.id]?.size || 0
+              const progressPct = totalModules > 0 ? Math.round((completedModules / totalModules) * 100) : 0
+              const progressColor = progressPct >= 100 ? colors.success : progressPct > 0 ? colors.primary : colors.textMuted
+              const statusLabel = progressPct >= 100 ? 'Complete' : progressPct > 0 ? 'In Progress' : 'Not Started'
+              const statusBg = progressPct >= 100 ? '#dcfce7' : progressPct > 0 ? '#dbeafe' : '#f1f5f9'
+              const statusTextColor = progressPct >= 100 ? '#166534' : progressPct > 0 ? '#1e40af' : '#475569'
+
+              return (
+                <View key={child.id} style={styles.childCard}>
+                  <View style={styles.childRow}>
+                    <View style={styles.childAvatar}>
+                      <Text style={styles.childAvatarText}>
+                        {child.name.charAt(0).toUpperCase()}
+                      </Text>
+                    </View>
+                    <View style={styles.childInfo}>
+                      <View style={styles.childNameRow}>
+                        <Text style={styles.childName}>{child.name}</Text>
+                        <View style={[styles.childStatusBadge, { backgroundColor: statusBg }]}>
+                          <Text style={[styles.childStatusText, { color: statusTextColor }]}>
+                            {statusLabel}
+                          </Text>
+                        </View>
+                      </View>
+                      <Text style={styles.childMeta}>
+                        {child.gender === 'male' ? 'M' : 'F'}
+                        {child.dob ? ` | DOB: ${child.dob}` : ''}
+                        {child.class ? ` | Class ${child.class}` : ''}
+                        {' | '}{completedModules}/{totalModules} screened
+                      </Text>
+                    </View>
+                  </View>
+                  <View style={styles.childProgressTrack}>
+                    <View
+                      style={[
+                        styles.childProgressFill,
+                        { width: `${progressPct}%`, backgroundColor: progressColor },
+                      ]}
+                    />
+                  </View>
                 </View>
-                <View style={styles.childInfo}>
-                  <Text style={styles.childName}>{child.name}</Text>
-                  <Text style={styles.childMeta}>
-                    {child.gender === 'male' ? 'M' : 'F'}
-                    {child.dob ? ` | DOB: ${child.dob}` : ''}
-                    {child.class ? ` | Class ${child.class}` : ''}
-                  </Text>
-                </View>
-              </View>
-            ))
+              )
+            })
           )}
         </View>
       </ScrollView>
@@ -423,15 +508,18 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     lineHeight: 22,
   },
-  childRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
+  childCard: {
     backgroundColor: colors.surface,
     borderRadius: borderRadius.md,
     borderWidth: 1,
     borderColor: colors.border,
-    padding: spacing.md,
     marginBottom: spacing.sm,
+    overflow: 'hidden',
+  },
+  childRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: spacing.md,
   },
   childAvatar: {
     width: 44,
@@ -455,9 +543,72 @@ const styles = StyleSheet.create({
     fontWeight: fontWeight.semibold,
     color: colors.text,
   },
+  childNameRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  childStatusBadge: {
+    paddingHorizontal: spacing.sm,
+    paddingVertical: 2,
+    borderRadius: borderRadius.sm,
+  },
+  childStatusText: {
+    fontSize: fontSize.xs - 1,
+    fontWeight: fontWeight.bold,
+  },
   childMeta: {
     fontSize: fontSize.sm,
     color: colors.textSecondary,
     marginTop: 2,
+  },
+  childProgressTrack: {
+    height: 3,
+    backgroundColor: colors.borderLight,
+  },
+  childProgressFill: {
+    height: 3,
+  },
+  progressSummary: {
+    backgroundColor: colors.surface,
+    borderRadius: borderRadius.lg,
+    borderWidth: 1,
+    borderColor: colors.border,
+    padding: spacing.md,
+    marginHorizontal: spacing.md,
+    marginTop: spacing.md,
+    ...shadow.sm,
+  },
+  progressHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: spacing.sm,
+  },
+  progressTitle: {
+    fontSize: fontSize.md,
+    fontWeight: fontWeight.bold,
+    color: colors.text,
+  },
+  progressPercent: {
+    fontSize: fontSize.sm,
+    fontWeight: fontWeight.semibold,
+    color: colors.primary,
+  },
+  progressBarTrack: {
+    height: 8,
+    backgroundColor: colors.borderLight,
+    borderRadius: 4,
+    overflow: 'hidden',
+  },
+  progressBarFill: {
+    height: 8,
+    backgroundColor: colors.primary,
+    borderRadius: 4,
+  },
+  progressSubtext: {
+    fontSize: fontSize.xs,
+    color: colors.textMuted,
+    marginTop: spacing.xs,
   },
 })

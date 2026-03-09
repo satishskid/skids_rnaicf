@@ -5,16 +5,28 @@ import {
   BarChart3,
   Settings,
   Heart,
+  Inbox,
+  Globe,
 } from 'lucide-react'
+import { useAuth } from '../lib/auth'
 
-const navigation = [
-  { name: 'Dashboard', to: '/', icon: LayoutDashboard },
-  { name: 'Campaigns', to: '/campaigns', icon: Megaphone },
-  { name: 'Analytics', to: '/analytics', icon: BarChart3 },
-  { name: 'Settings', to: '/settings', icon: Settings },
+const allNavigation = [
+  { name: 'Dashboard', to: '/', icon: LayoutDashboard, roles: undefined },
+  { name: 'Campaigns', to: '/campaigns', icon: Megaphone, roles: undefined },
+  { name: 'Doctor Inbox', to: '/doctor-inbox', icon: Inbox, roles: ['doctor', 'admin', 'ops_manager'] as string[] },
+  { name: 'Population Health', to: '/authority', icon: Globe, roles: ['authority', 'admin', 'ops_manager'] as string[] },
+  { name: 'Analytics', to: '/analytics', icon: BarChart3, roles: undefined },
+  { name: 'Settings', to: '/settings', icon: Settings, roles: undefined },
 ]
 
 export function Sidebar() {
+  const { user } = useAuth()
+  const userRole = user?.role || 'nurse'
+
+  const navigation = allNavigation.filter(
+    item => !item.roles || item.roles.includes(userRole)
+  )
+
   return (
     <aside className="fixed left-0 top-0 z-40 h-screen w-64 border-r border-gray-200 bg-white">
       {/* Logo */}

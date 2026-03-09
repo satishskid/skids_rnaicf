@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useRef } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import {
   ArrowLeft,
@@ -11,11 +11,16 @@ import {
   AlertCircle,
   User,
   Clock,
+  Upload,
+  Download,
+  FileText,
+  Loader2,
 } from 'lucide-react'
 import { StatusBadge } from '../components/StatusBadge'
 import { LoadingSpinner } from '../components/LoadingSpinner'
 import { EmptyState } from '../components/EmptyState'
 import { useApi } from '../lib/hooks'
+import { apiCall } from '../lib/api'
 import { getModuleName, computeNurseQualityStats } from '@skids/shared'
 
 // ── Types for API responses ──
@@ -227,6 +232,20 @@ export function CampaignDetailPage() {
             ))}
           </div>
         )}
+
+        {/* Action buttons */}
+        <div className="mt-4 flex flex-wrap gap-2">
+          <CsvImportButton campaignCode={code!} onImported={() => window.location.reload()} />
+          <a
+            href={`https://skids-api.satish-9f4.workers.dev/api/campaigns/${code}/export`}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="flex items-center gap-2 rounded-lg border border-gray-300 px-3 py-2 text-xs font-medium text-gray-700 hover:bg-gray-50"
+          >
+            <Download className="h-3.5 w-3.5" />
+            Export JSON
+          </a>
+        </div>
       </div>
 
       {/* Tabs */}
@@ -267,7 +286,7 @@ export function CampaignDetailPage() {
       {/* Tab content */}
       <div>
         {activeTab === 'children' && (
-          <ChildrenTab children={children} isLoading={childrenLoading} />
+          <ChildrenTab children={children} isLoading={childrenLoading} campaignCode={code!} />
         )}
         {activeTab === 'observations' && (
           <ObservationsTab
@@ -291,10 +310,13 @@ export function CampaignDetailPage() {
 function ChildrenTab({
   children,
   isLoading,
+  campaignCode,
 }: {
   children: ChildData[]
   isLoading: boolean
+  campaignCode: string
 }) {
+  const navigate = useNavigate()
   if (isLoading) return <LoadingSpinner message="Loading children..." />
 
   if (children.length === 0) {
@@ -333,13 +355,17 @@ function ChildrenTab({
           {children.map((child) => {
             const age = child.dob ? formatChildAge(child.dob) : 'N/A'
             return (
-              <tr key={child.id} className="transition-colors hover:bg-gray-50">
+              <tr
+                key={child.id}
+                onClick={() => navigate(`/campaigns/${campaignCode}/children/${child.id}/report`)}
+                className="cursor-pointer transition-colors hover:bg-blue-50"
+              >
                 <td className="whitespace-nowrap px-6 py-4">
                   <div className="flex items-center gap-3">
                     <div className="flex h-8 w-8 items-center justify-center rounded-full bg-blue-100">
                       <User className="h-4 w-4 text-blue-600" />
                     </div>
-                    <span className="text-sm font-medium text-gray-900">
+                    <span className="text-sm font-medium text-blue-700 underline-offset-2 hover:underline">
                       {child.name}
                     </span>
                   </div>
@@ -695,6 +721,88 @@ function AnalyticsTab({
             ))}
           </div>
         </div>
+      )}
+    </div>
+  )
+}
+
+// ── CSV Import Button ──
+
+function CsvImportButton({ campaignCode, onImported }: { campaignCode: string; onImported: () => void }) {
+  const fileRef = useRef<HTMLInputElement>(null)
+  const [importing, setImporting] = useState(false)
+  const [result, setResult] = useState<{ added: number; skipped: number; errors?: string[] } | null>(null)
+
+  const handleFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+    setImporting(true)
+    setResult(null)
+
+    try {
+      const text = await file.text()
+      const lines = text.split('\n').filter(l => l.trim())
+      if (lines.length < 2) {
+        setResult({ added: 0, skipped: 0, errors: ['CSV must have a header row and at least one data row'] })
+        setImporting(false)
+        return
+      }
+
+      const headers = lines[0].split(',').map(h => h.trim().toLowerCase())
+      const nameIdx = headers.findIndex(h => h === 'name' || h === 'student_name' || h === 'child_name')
+      const dobIdx = headers.findIndex(h => h === 'dob' || h === 'date_of_birth' || h === 'birthdate')
+      const genderIdx = headers.findIndex(h => h === 'gender' || h === 'sex')
+      const classIdx = headers.findIndex(h => h === 'class' || h === 'grade' || h === 'standard')
+      const sectionIdx = headers.findIndex(h => h === 'section' || h === 'division')
+      const admIdx = headers.findIndex(h => h === 'admission_number' || h === 'admission_no' || h === 'roll_no')
+
+      if (nameIdx === -1) {
+        setResult({ added: 0, skipped: 0, errors: ['CSV must have a "name" column'] })
+        setImporting(false)
+        return
+      }
+
+      const children = lines.slice(1).map(line => {
+        const cols = line.split(',').map(c => c.trim())
+        return {
+          name: cols[nameIdx] || '',
+          dob: dobIdx >= 0 ? cols[dobIdx] : undefined,
+          gender: genderIdx >= 0 ? cols[genderIdx] : undefined,
+          class: classIdx >= 0 ? cols[classIdx] : undefined,
+          section: sectionIdx >= 0 ? cols[sectionIdx] : undefined,
+          admissionNumber: admIdx >= 0 ? cols[admIdx] : undefined,
+        }
+      }).filter(c => c.name)
+
+      const res = await apiCall<{ added: number; skipped: number; errors?: string[] }>(
+        `/api/campaigns/${campaignCode}/children`,
+        { method: 'POST', body: JSON.stringify({ children }) }
+      )
+      setResult(res)
+      if (res.added > 0) onImported()
+    } catch (err) {
+      setResult({ added: 0, skipped: 0, errors: [err instanceof Error ? err.message : 'Import failed'] })
+    } finally {
+      setImporting(false)
+      if (fileRef.current) fileRef.current.value = ''
+    }
+  }
+
+  return (
+    <div className="inline-flex flex-col">
+      <input ref={fileRef} type="file" accept=".csv" onChange={handleFile} className="hidden" />
+      <button
+        onClick={() => fileRef.current?.click()}
+        disabled={importing}
+        className="flex items-center gap-2 rounded-lg border border-gray-300 px-3 py-2 text-xs font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50"
+      >
+        {importing ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Upload className="h-3.5 w-3.5" />}
+        {importing ? 'Importing...' : 'Import Children (CSV)'}
+      </button>
+      {result && (
+        <p className={`mt-1 text-xs ${result.errors?.length ? 'text-red-600' : 'text-green-600'}`}>
+          {result.errors?.length ? result.errors[0] : `Added ${result.added}, skipped ${result.skipped} duplicates`}
+        </p>
       )}
     </div>
   )

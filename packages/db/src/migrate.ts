@@ -3,7 +3,12 @@
 
 import { createClient } from '@libsql/client'
 import { readFileSync } from 'fs'
-import { join } from 'path'
+import { join, dirname } from 'path'
+import { fileURLToPath } from 'url'
+
+const __dirname = typeof import.meta.dirname === 'string'
+  ? import.meta.dirname
+  : dirname(fileURLToPath(import.meta.url))
 
 async function migrate() {
   const url = process.env.TURSO_URL
@@ -19,14 +24,14 @@ async function migrate() {
   console.log(`Connecting to ${url}...`)
 
   // Read and execute schema
-  const schemaPath = join(import.meta.dirname, 'schema.sql')
+  const schemaPath = join(__dirname, 'schema.sql')
   const schema = readFileSync(schemaPath, 'utf-8')
 
   // Split by semicolons and execute each statement
   const statements = schema
     .split(';')
-    .map(s => s.trim())
-    .filter(s => s.length > 0 && !s.startsWith('--'))
+    .map(s => s.split('\n').filter(line => !line.trim().startsWith('--')).join('\n').trim())
+    .filter(s => s.length > 0)
 
   console.log(`Executing ${statements.length} statements...`)
 
