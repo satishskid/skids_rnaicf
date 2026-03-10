@@ -19,22 +19,22 @@ app.get('/:code', async (c) => {
 
   // Get recent observations with nurse names
   const recentObs = await db.execute({
-    sql: `SELECT o.id, o.childId, o.moduleType, o.createdAt, o.nurseName,
-            c.name as childName
+    sql: `SELECT o.id, o.child_id, o.module_type, o.created_at, o.screened_by,
+            c.name as child_name
           FROM observations o
-          LEFT JOIN children c ON c.id = o.childId
-          WHERE o.campaignCode = ? AND o.createdAt > ?
-          ORDER BY o.createdAt DESC
+          LEFT JOIN children c ON c.id = o.child_id
+          WHERE o.campaign_code = ? AND o.created_at > ?
+          ORDER BY o.created_at DESC
           LIMIT 50`,
     args: [code, cutoff],
   })
 
   // Get active nurses (those who created observations recently)
   const activeNurses = await db.execute({
-    sql: `SELECT nurseName, COUNT(*) as count, MAX(createdAt) as lastActive
+    sql: `SELECT screened_by, COUNT(*) as count, MAX(created_at) as lastActive
           FROM observations
-          WHERE campaignCode = ? AND createdAt > ? AND nurseName IS NOT NULL
-          GROUP BY nurseName
+          WHERE campaign_code = ? AND created_at > ? AND screened_by IS NOT NULL
+          GROUP BY screened_by
           ORDER BY lastActive DESC`,
     args: [code, cutoff],
   })
@@ -42,10 +42,10 @@ app.get('/:code', async (c) => {
   // Get overall counts
   const stats = await db.execute({
     sql: `SELECT
-            COUNT(DISTINCT childId) as childrenScreened,
+            COUNT(DISTINCT child_id) as childrenScreened,
             COUNT(*) as totalObservations
           FROM observations
-          WHERE campaignCode = ?`,
+          WHERE campaign_code = ?`,
     args: [code],
   })
 
@@ -54,14 +54,14 @@ app.get('/:code', async (c) => {
   return c.json({
     recentActivity: (recentObs.rows ?? []).map((r: any) => ({
       id: r.id,
-      childId: r.childId,
-      childName: r.childName,
-      moduleType: r.moduleType,
-      nurseName: r.nurseName,
-      createdAt: r.createdAt,
+      childId: r.child_id,
+      childName: r.child_name,
+      moduleType: r.module_type,
+      nurseName: r.screened_by,
+      createdAt: r.created_at,
     })),
     activeNurses: (activeNurses.rows ?? []).map((r: any) => ({
-      name: r.nurseName,
+      name: r.screened_by,
       observations: r.count,
       lastActive: r.lastActive,
     })),

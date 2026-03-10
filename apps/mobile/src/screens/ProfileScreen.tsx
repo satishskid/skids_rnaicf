@@ -1,7 +1,7 @@
 // Profile screen — user info, app info, and logout
 // Clean card-based layout for the Profile tab
 
-import React from 'react'
+import React, { useState, useEffect } from 'react'
 import {
   View,
   Text,
@@ -9,14 +9,32 @@ import {
   StyleSheet,
   ScrollView,
   Alert,
+  ActivityIndicator,
 } from 'react-native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { colors, spacing, borderRadius, fontSize, fontWeight, shadow } from '../theme'
 import { useAuth } from '../lib/AuthContext'
+import { checkOllamaStatus, DEFAULT_LLM_CONFIG } from '../lib/ai/llm-gateway'
 
 export function ProfileScreen() {
   const { user, logout } = useAuth()
   const insets = useSafeAreaInsets()
+  const [aiStatus, setAiStatus] = useState<{ checked: boolean; available: boolean; models: string[]; error?: string }>({ checked: false, available: false, models: [] })
+  const [aiChecking, setAiChecking] = useState(false)
+
+  const checkAi = async () => {
+    setAiChecking(true)
+    try {
+      const status = await checkOllamaStatus(DEFAULT_LLM_CONFIG.ollamaUrl, DEFAULT_LLM_CONFIG.ollamaModel)
+      setAiStatus({ checked: true, ...status })
+    } catch {
+      setAiStatus({ checked: true, available: false, models: [], error: 'Connection failed' })
+    } finally {
+      setAiChecking(false)
+    }
+  }
+
+  useEffect(() => { checkAi() }, [])
 
   const handleLogout = () => {
     Alert.alert(
@@ -136,6 +154,56 @@ export function ProfileScreen() {
                 skids-api.satish-9f4.workers.dev
               </Text>
             </View>
+          </View>
+        </View>
+
+        {/* AI Status Section */}
+        <View style={styles.section}>
+          <Text style={styles.sectionTitle}>AI Engine</Text>
+          <View style={styles.infoCard}>
+            <View style={styles.infoRow}>
+              <Text style={styles.infoLabel}>Mode</Text>
+              <Text style={styles.infoValue}>{DEFAULT_LLM_CONFIG.mode.replace('_', ' ')}</Text>
+            </View>
+            <View style={styles.divider} />
+            <View style={styles.infoRow}>
+              <Text style={styles.infoLabel}>Local Model</Text>
+              <Text style={[styles.infoValue, styles.monoText]}>{DEFAULT_LLM_CONFIG.ollamaModel}</Text>
+            </View>
+            <View style={styles.divider} />
+            <View style={styles.infoRow}>
+              <Text style={styles.infoLabel}>Ollama Status</Text>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                {aiChecking ? (
+                  <ActivityIndicator size="small" color={colors.primary} />
+                ) : (
+                  <>
+                    <View style={[styles.statusDot, { backgroundColor: aiStatus.available ? '#16a34a' : '#d97706' }]} />
+                    <Text style={[styles.infoValue, { flex: 0 }]}>
+                      {aiStatus.available ? 'Connected' : aiStatus.error || 'Unavailable'}
+                    </Text>
+                  </>
+                )}
+              </View>
+            </View>
+            {aiStatus.checked && aiStatus.models.length > 0 && (
+              <>
+                <View style={styles.divider} />
+                <View style={styles.infoRow}>
+                  <Text style={styles.infoLabel}>Models</Text>
+                  <Text style={[styles.infoValue, styles.monoText]} numberOfLines={2}>
+                    {aiStatus.models.slice(0, 3).join(', ')}
+                    {aiStatus.models.length > 3 ? ` +${aiStatus.models.length - 3}` : ''}
+                  </Text>
+                </View>
+              </>
+            )}
+            <View style={styles.divider} />
+            <TouchableOpacity style={styles.infoRow} onPress={checkAi} disabled={aiChecking}>
+              <Text style={[styles.infoLabel, { color: colors.primary }]}>
+                {aiChecking ? 'Checking...' : 'Refresh AI Status'}
+              </Text>
+            </TouchableOpacity>
           </View>
         </View>
 
@@ -286,6 +354,11 @@ const styles = StyleSheet.create({
     height: 1,
     backgroundColor: colors.borderLight,
     marginHorizontal: spacing.md,
+  },
+  statusDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
   },
   // Logout
   logoutButton: {

@@ -89,7 +89,7 @@ app.get('/:token', async (c) => {
         args: [row.childId],
       }),
       db.execute({
-        sql: 'SELECT * FROM observations WHERE childId = ? AND campaignCode = ?',
+        sql: 'SELECT * FROM observations WHERE child_id = ? AND campaign_code = ?',
         args: [row.childId, row.campaignCode],
       }),
     ])
@@ -99,13 +99,13 @@ app.get('/:token', async (c) => {
 
     const observations = (obsRes.rows ?? []).map((r: any) => ({
       id: r.id,
-      childId: r.childId,
-      moduleType: r.moduleType,
-      campaignCode: r.campaignCode,
-      annotationData: r.annotationData ? JSON.parse(r.annotationData) : undefined,
-      aiAnnotations: r.aiAnnotations ? JSON.parse(r.aiAnnotations) : undefined,
-      mediaUrl: r.mediaUrl,
-      createdAt: r.createdAt,
+      childId: r.child_id,
+      moduleType: r.module_type,
+      campaignCode: r.campaign_code,
+      annotationData: r.annotation_data ? JSON.parse(r.annotation_data) : undefined,
+      aiAnnotations: r.ai_annotations ? JSON.parse(r.ai_annotations) : undefined,
+      mediaUrl: r.media_url,
+      createdAt: r.created_at,
     }))
 
     return c.json({

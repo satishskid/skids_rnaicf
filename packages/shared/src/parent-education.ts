@@ -166,6 +166,8 @@ export interface ConditionParentInfo {
   description: string     // Parent-friendly explanation
   prevalence?: string     // General prevalence context
   intervention: string    // Actionable guidance
+  symptoms?: string       // What to watch for
+  warningSign?: string    // When to seek immediate help
 }
 
 export const CONDITION_PARENT_INFO: Record<string, ConditionParentInfo> = {
@@ -174,6 +176,8 @@ export const CONDITION_PARENT_INFO: Record<string, ConditionParentInfo> = {
     description: 'A cleft lip or palate is an opening in the upper lip or the roof of the mouth that occurs during early development. It can affect feeding, speech development, and dental health.',
     prevalence: 'Affects approximately 1 in 700 children worldwide.',
     intervention: 'We recommend consultation with a craniofacial specialist. Surgical repair is typically performed between 3-12 months of age with excellent outcomes.',
+    symptoms: 'Difficulty feeding, nasal-sounding speech, frequent ear infections, dental problems.',
+    warningSign: 'If your child has trouble breathing, persistent ear infections, or significant feeding difficulties, seek medical attention promptly.',
   },
   def2: {
     description: 'Down syndrome is a genetic condition caused by an extra chromosome. Children with Down syndrome may have characteristic facial features, developmental delays, and may be at higher risk for heart and thyroid conditions.',
@@ -189,6 +193,8 @@ export const CONDITION_PARENT_INFO: Record<string, ConditionParentInfo> = {
     description: 'Screening suggests a possible structural heart condition based on abnormal heart sounds or other indicators. Many childhood heart murmurs are harmless, but some require further evaluation.',
     prevalence: 'Congenital heart defects affect about 1 in 100 children.',
     intervention: 'We recommend an echocardiogram (heart ultrasound) with a pediatric cardiologist to determine if the finding is significant.',
+    symptoms: 'Rapid breathing, bluish skin color, poor weight gain, sweating during feeding, fatigue during physical activity.',
+    warningSign: 'Seek emergency care if your child shows blue lips or fingertips, sudden difficulty breathing, or fainting during activity.',
   },
   def5: {
     description: 'Clubfoot is a condition where the foot is turned inward and downward at birth. With proper treatment, most children achieve normal walking ability.',

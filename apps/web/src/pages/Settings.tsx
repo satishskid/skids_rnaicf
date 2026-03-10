@@ -1,6 +1,9 @@
 import { useState, useEffect } from 'react'
-import { User, Bell, Shield, Monitor, Activity, RefreshCw } from 'lucide-react'
+import { User, Bell, Shield, Monitor, Activity, RefreshCw, Brain, Key } from 'lucide-react'
 import { useAuth } from '../lib/auth'
+import { apiCall } from '../lib/api'
+import { AIConfigPanel } from '../components/admin/AIConfigPanel'
+import type { LLMConfig } from '../lib/ai/llm-gateway'
 
 interface HealthCheck {
   status: string
@@ -16,10 +19,38 @@ interface DetailedHealth {
   checks: Record<string, HealthCheck>
 }
 
+const BYOK_KEY = 'skids-doctor-byok'
+
+interface ByokConfig {
+  enabled: boolean
+  provider: string
+  apiKey: string
+}
+
+function loadByok(): ByokConfig {
+  try {
+    const raw = localStorage.getItem(BYOK_KEY)
+    if (raw) return JSON.parse(raw)
+  } catch { /* ignore */ }
+  return { enabled: false, provider: 'gemini', apiKey: '' }
+}
+
 export function SettingsPage() {
   const { user } = useAuth()
   const [health, setHealth] = useState<DetailedHealth | null>(null)
   const [healthLoading, setHealthLoading] = useState(false)
+
+  // AI Config state
+  const [aiConfig, setAiConfig] = useState<Partial<LLMConfig> | null>(null)
+  const [aiConfigLoading, setAiConfigLoading] = useState(true)
+  const [aiSaving, setAiSaving] = useState(false)
+  const [aiSaveMsg, setAiSaveMsg] = useState<string | null>(null)
+
+  // Doctor BYOK state
+  const [byok, setByok] = useState<ByokConfig>(loadByok)
+
+  // Determine if current user is admin
+  const isAdmin = user?.role === 'admin' || user?.role === 'ops_manager'
 
   async function fetchHealth() {
     setHealthLoading(true)
@@ -33,6 +64,52 @@ export function SettingsPage() {
     } finally {
       setHealthLoading(false)
     }
+  }
+
+  // Fetch org AI config
+  useEffect(() => {
+    async function fetchAiConfig() {
+      try {
+        const orgId = (user as Record<string, unknown>)?.orgId as string || 'default'
+        const res = await apiCall<{ config: Partial<LLMConfig> | null }>(`/api/ai-config/${orgId}`)
+        setAiConfig(res.config || {})
+      } catch {
+        setAiConfig({})
+      } finally {
+        setAiConfigLoading(false)
+      }
+    }
+    fetchAiConfig()
+  }, [user])
+
+  // Save org AI config
+  async function handleSaveAiConfig(config: LLMConfig) {
+    setAiSaving(true)
+    setAiSaveMsg(null)
+    try {
+      const orgId = (user as Record<string, unknown>)?.orgId as string || 'default'
+      await apiCall(`/api/ai-config/${orgId}`, {
+        method: 'PUT',
+        body: JSON.stringify({ config }),
+      })
+      setAiConfig(config)
+      setAiSaveMsg('AI configuration saved')
+      setTimeout(() => setAiSaveMsg(null), 3000)
+    } catch {
+      setAiSaveMsg('Failed to save — check permissions')
+      setTimeout(() => setAiSaveMsg(null), 4000)
+    } finally {
+      setAiSaving(false)
+    }
+  }
+
+  // Save BYOK to localStorage
+  function handleByokChange(patch: Partial<ByokConfig>) {
+    setByok(prev => {
+      const next = { ...prev, ...patch }
+      localStorage.setItem(BYOK_KEY, JSON.stringify(next))
+      return next
+    })
   }
 
   useEffect(() => { fetchHealth() }, [])
@@ -198,6 +275,102 @@ export function SettingsPage() {
             two-factor authentication can be configured through your account
             provider.
           </p>
+        </div>
+      </div>
+
+      {/* AI Configuration (Admin) */}
+      {isAdmin && (
+        <div className="rounded-xl border border-gray-200 bg-white p-6">
+          <div className="flex items-center gap-3">
+            <div className="flex h-10 w-10 items-center justify-center rounded-full bg-purple-100">
+              <Brain className="h-5 w-5 text-purple-600" />
+            </div>
+            <div>
+              <h3 className="text-base font-semibold text-gray-900">AI Configuration</h3>
+              <p className="text-sm text-gray-500">Organization AI model and routing settings</p>
+            </div>
+          </div>
+
+          <div className="mt-6">
+            {aiConfigLoading ? (
+              <p className="text-sm text-gray-400">Loading AI configuration...</p>
+            ) : (
+              <AIConfigPanel
+                config={aiConfig || undefined}
+                onSave={handleSaveAiConfig}
+                saving={aiSaving}
+              />
+            )}
+            {aiSaveMsg && (
+              <p className={`mt-3 text-xs font-medium ${aiSaveMsg.includes('Failed') ? 'text-red-600' : 'text-green-600'}`}>
+                {aiSaveMsg}
+              </p>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Doctor BYOK (Bring Your Own Key) */}
+      <div className="rounded-xl border border-gray-200 bg-white p-6">
+        <div className="flex items-center gap-3">
+          <div className="flex h-10 w-10 items-center justify-center rounded-full bg-indigo-100">
+            <Key className="h-5 w-5 text-indigo-600" />
+          </div>
+          <div>
+            <h3 className="text-base font-semibold text-gray-900">Personal AI Key</h3>
+            <p className="text-sm text-gray-500">Use your own API key for cloud AI (stored locally, never sent to server)</p>
+          </div>
+        </div>
+
+        <div className="mt-6 space-y-4">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-sm font-medium text-gray-900">Use personal API key</p>
+              <p className="text-xs text-gray-500">Overrides organization cloud AI config</p>
+            </div>
+            <label className="relative inline-flex items-center cursor-pointer">
+              <input
+                type="checkbox"
+                className="sr-only peer"
+                checked={byok.enabled}
+                onChange={e => handleByokChange({ enabled: e.target.checked })}
+              />
+              <div className="w-9 h-5 bg-gray-300 rounded-full peer peer-checked:bg-indigo-600 after:content-[''] after:absolute after:top-0.5 after:left-[2px] after:bg-white after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:after:translate-x-full" />
+            </label>
+          </div>
+
+          {byok.enabled && (
+            <>
+              <div>
+                <label className="block text-xs font-medium text-gray-500 mb-1">Provider</label>
+                <select
+                  value={byok.provider}
+                  onChange={e => handleByokChange({ provider: e.target.value })}
+                  className="w-full text-sm px-3 py-2 border border-gray-300 rounded-lg"
+                >
+                  <option value="gemini">Gemini Flash (Google)</option>
+                  <option value="claude">Claude Sonnet (Anthropic)</option>
+                  <option value="gpt4o">GPT-4o (OpenAI)</option>
+                  <option value="groq">Groq (Llama 3.3 70B)</option>
+                </select>
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-gray-500 mb-1">API Key</label>
+                <input
+                  type="password"
+                  value={byok.apiKey}
+                  onChange={e => handleByokChange({ apiKey: e.target.value })}
+                  placeholder="sk-... or AIza..."
+                  className="w-full text-sm px-3 py-2 border border-gray-300 rounded-lg"
+                />
+              </div>
+              <div className="p-2.5 bg-blue-50 border border-blue-200 rounded-lg">
+                <p className="text-xs text-blue-700">
+                  Your API key is stored in this browser only (localStorage). It is never sent to the SKIDS server — it goes directly from your browser to the AI provider.
+                </p>
+              </div>
+            </>
+          )}
         </div>
       </div>
 

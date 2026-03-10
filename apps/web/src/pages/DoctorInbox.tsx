@@ -1,4 +1,4 @@
-import { useState, useMemo, useCallback } from 'react'
+import { useState, useEffect, useMemo, useCallback } from 'react'
 import {
   Inbox,
   ChevronDown,
@@ -13,6 +13,13 @@ import {
   Loader2,
   FileCheck2,
   Stethoscope,
+  Brain,
+  Image as ImageIcon,
+  X,
+  Search,
+  ChevronLeft,
+  ShieldCheck,
+  FileText,
 } from 'lucide-react'
 import { StatusBadge } from '../components/StatusBadge'
 import { LoadingSpinner } from '../components/LoadingSpinner'
@@ -20,7 +27,14 @@ import { EmptyState } from '../components/EmptyState'
 import { useApi } from '../lib/hooks'
 import { apiCall } from '../lib/api'
 import { useAuth } from '../lib/auth'
-import { getModuleName, computeObservationQuality } from '@skids/shared'
+import { getModuleName, getModuleConfig, computeObservationQuality } from '@skids/shared'
+import {
+  buildClinicalPrompt,
+  queryLLM,
+  DEFAULT_LLM_CONFIG,
+  type LLMConfig,
+  type LLMResponse,
+} from '../lib/ai/llm-gateway'
 
 // ── Types ──
 
@@ -117,9 +131,67 @@ export function DoctorInboxPage() {
   const [expandedChild, setExpandedChild] = useState<string | null>(null)
   const [filter, setFilter] = useState<FilterMode>('all')
   const [sort, setSort] = useState<SortMode>('risk')
+  const [searchQuery, setSearchQuery] = useState('')
   const [drafts, setDrafts] = useState<Record<string, DraftReview>>({})
   const [saving, setSaving] = useState<Record<string, boolean>>({})
   const [bulkSaving, setBulkSaving] = useState(false)
+  const [bulkApproving, setBulkApproving] = useState(false)
+
+  // AI state
+  const [aiSummaries, setAiSummaries] = useState<Record<string, { loading: boolean; text?: string; error?: string; responses?: LLMResponse[] }>>({})
+  const [llmConfig, setLlmConfig] = useState<LLMConfig>(DEFAULT_LLM_CONFIG)
+
+  // Load org AI config + BYOK overrides
+  useEffect(() => {
+    async function loadAiConfig() {
+      try {
+        const orgId = (user as Record<string, unknown>)?.orgId as string || 'default'
+        const res = await apiCall<{ config: Partial<LLMConfig> | null }>(`/api/ai-config/${orgId}`)
+        const orgConfig = { ...DEFAULT_LLM_CONFIG, ...res.config }
+        // Apply BYOK overrides from localStorage
+        try {
+          const byok = JSON.parse(localStorage.getItem('skids-doctor-byok') || '{}')
+          if (byok.enabled && byok.apiKey) {
+            orgConfig.cloudApiKey = byok.apiKey
+            orgConfig.cloudProvider = byok.provider || orgConfig.cloudProvider
+            if (orgConfig.mode === 'local_only') orgConfig.mode = 'local_first'
+          }
+        } catch { /* ignore */ }
+        setLlmConfig(orgConfig)
+      } catch { /* keep defaults */ }
+    }
+    loadAiConfig()
+  }, [user])
+
+  // Ask AI for a child summary
+  const askAiForChild = useCallback(async (childId: string, childName: string, childAge: string, childObs: ObservationData[]) => {
+    setAiSummaries(prev => ({ ...prev, [childId]: { loading: true } }))
+    try {
+      const obsForPrompt = childObs.map(obs => ({
+        moduleType: obs.moduleType,
+        moduleName: getModuleName(obs.moduleType),
+        riskCategory: obs.aiAnnotations?.[0]?.riskCategory || 'unknown',
+        summaryText: obs.aiAnnotations?.[0]?.summaryText || 'No AI summary',
+        nurseChips: obs.annotationData?.selectedChips || [],
+        chipSeverities: {} as Record<string, string>,
+        aiFindings: [],
+        notes: '',
+      }))
+      const messages = buildClinicalPrompt(childName, childAge, obsForPrompt)
+      const responses = await queryLLM(llmConfig, messages)
+      const best = responses.find(r => !r.error) || responses[0]
+      if (best.error) {
+        setAiSummaries(prev => ({ ...prev, [childId]: { loading: false, error: best.error, responses } }))
+      } else {
+        setAiSummaries(prev => ({ ...prev, [childId]: { loading: false, text: best.text, responses } }))
+      }
+    } catch (err) {
+      setAiSummaries(prev => ({
+        ...prev,
+        [childId]: { loading: false, error: err instanceof Error ? err.message : 'AI request failed' },
+      }))
+    }
+  }, [llmConfig])
 
   // Fetch campaigns
   const { data: campaignsData, isLoading: campaignsLoading } =
@@ -193,15 +265,22 @@ export function DoctorInboxPage() {
     })
   }, [observations, children, reviewByObsId])
 
-  // Filter
+  // Filter (includes search)
   const filteredGroups = useMemo(() => {
     return childGroups.filter((g) => {
+      // Search filter
+      if (searchQuery.trim()) {
+        const q = searchQuery.toLowerCase()
+        const nameMatch = g.child.name.toLowerCase().includes(q)
+        const classMatch = g.child.class?.toLowerCase().includes(q)
+        if (!nameMatch && !classMatch) return false
+      }
       if (filter === 'high_risk') return g.riskCounts.high_risk > 0
       if (filter === 'pending') return g.reviewStatus !== 'complete'
       if (filter === 'completed') return g.reviewStatus === 'complete'
       return true
     })
-  }, [childGroups, filter])
+  }, [childGroups, filter, searchQuery])
 
   // Sort
   const sortedGroups = useMemo(() => {
@@ -298,6 +377,68 @@ export function DoctorInboxPage() {
 
   const pendingDraftCount = Object.values(drafts).filter((d) => d.decision).length
 
+  // Bulk approve all no_risk observations that haven't been reviewed
+  const approveAllNormal = useCallback(async () => {
+    const normalObs = observations.filter(obs => {
+      const risk = obs.aiAnnotations?.[0]?.riskCategory
+      return (risk === 'no_risk' || !risk) && !reviewByObsId[obs.id]
+    })
+    if (normalObs.length === 0) return
+    setBulkApproving(true)
+    try {
+      await Promise.all(
+        normalObs.map(obs =>
+          apiCall('/api/reviews', {
+            method: 'POST',
+            body: JSON.stringify({
+              observationId: obs.id,
+              campaignCode: selectedCampaign,
+              clinicianId: user?.id,
+              clinicianName: user?.name,
+              decision: 'approve',
+              qualityRating: 'good',
+              notes: 'Auto-approved: no risk findings',
+            }),
+          }),
+        ),
+      )
+      refetchReviews()
+      refetchObs()
+    } catch { /* user can retry */ }
+    finally { setBulkApproving(false) }
+  }, [observations, reviewByObsId, selectedCampaign, user, refetchReviews, refetchObs])
+
+  const normalUnreviewedCount = observations.filter(obs => {
+    const risk = obs.aiAnnotations?.[0]?.riskCategory
+    return (risk === 'no_risk' || !risk) && !reviewByObsId[obs.id]
+  }).length
+
+  // Prev/next child navigation
+  const currentChildIndex = sortedGroups.findIndex(g => g.child.id === expandedChild)
+  const goToPrevChild = () => {
+    if (currentChildIndex > 0) setExpandedChild(sortedGroups[currentChildIndex - 1].child.id)
+  }
+  const goToNextChild = () => {
+    if (currentChildIndex < sortedGroups.length - 1) setExpandedChild(sortedGroups[currentChildIndex + 1].child.id)
+  }
+
+  // Draft auto-save to localStorage
+  useEffect(() => {
+    if (selectedCampaign && Object.keys(drafts).length > 0) {
+      localStorage.setItem(`skids-inbox-drafts-${selectedCampaign}`, JSON.stringify(drafts))
+    }
+  }, [drafts, selectedCampaign])
+
+  // Restore drafts from localStorage when campaign changes
+  useEffect(() => {
+    if (selectedCampaign) {
+      try {
+        const saved = localStorage.getItem(`skids-inbox-drafts-${selectedCampaign}`)
+        if (saved) setDrafts(JSON.parse(saved))
+      } catch { /* ignore */ }
+    }
+  }, [selectedCampaign])
+
   return (
     <div className="space-y-6">
       {/* Header */}
@@ -308,16 +449,28 @@ export function DoctorInboxPage() {
             Review screening observations and provide clinical decisions.
           </p>
         </div>
-        {pendingDraftCount > 0 && (
-          <button
-            onClick={saveBulkReviews}
-            disabled={bulkSaving}
-            className="flex items-center gap-2 rounded-lg bg-blue-600 px-4 py-2.5 text-sm font-medium text-white shadow-sm transition-colors hover:bg-blue-700 disabled:opacity-60"
-          >
-            {bulkSaving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
-            Save All Reviews ({pendingDraftCount})
-          </button>
-        )}
+        <div className="flex items-center gap-2">
+          {normalUnreviewedCount > 0 && selectedCampaign && (
+            <button
+              onClick={approveAllNormal}
+              disabled={bulkApproving}
+              className="flex items-center gap-2 rounded-lg border border-green-300 bg-green-50 px-3 py-2 text-xs font-medium text-green-700 hover:bg-green-100 disabled:opacity-60"
+            >
+              {bulkApproving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <ShieldCheck className="h-3.5 w-3.5" />}
+              Approve Normal ({normalUnreviewedCount})
+            </button>
+          )}
+          {pendingDraftCount > 0 && (
+            <button
+              onClick={saveBulkReviews}
+              disabled={bulkSaving}
+              className="flex items-center gap-2 rounded-lg bg-blue-600 px-4 py-2.5 text-sm font-medium text-white shadow-sm transition-colors hover:bg-blue-700 disabled:opacity-60"
+            >
+              {bulkSaving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
+              Save All ({pendingDraftCount})
+            </button>
+          )}
+        </div>
       </div>
 
       {/* Campaign selector */}
@@ -393,8 +546,23 @@ export function DoctorInboxPage() {
             </div>
           </div>
 
-          {/* Filter & sort controls */}
+          {/* Search + Filter & sort controls */}
           <div className="flex flex-wrap items-center gap-3">
+            <div className="relative">
+              <Search className="absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-gray-400" />
+              <input
+                type="text"
+                value={searchQuery}
+                onChange={e => setSearchQuery(e.target.value)}
+                placeholder="Search children..."
+                className="w-48 rounded-lg border border-gray-300 py-1.5 pl-8 pr-7 text-xs text-gray-900 placeholder:text-gray-400 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+              />
+              {searchQuery && (
+                <button onClick={() => setSearchQuery('')} className="absolute right-2 top-1/2 -translate-y-1/2">
+                  <X className="h-3 w-3 text-gray-400 hover:text-gray-600" />
+                </button>
+              )}
+            </div>
             <div className="flex items-center gap-1.5">
               <Filter className="h-4 w-4 text-gray-400" />
               {(['all', 'high_risk', 'pending', 'completed'] as FilterMode[]).map((f) => (
@@ -438,7 +606,7 @@ export function DoctorInboxPage() {
             />
           ) : (
             <div className="space-y-3">
-              {sortedGroups.map((group) => (
+              {sortedGroups.map((group, idx) => (
                 <ChildRow
                   key={group.child.id}
                   group={group}
@@ -451,6 +619,13 @@ export function DoctorInboxPage() {
                   updateDraft={updateDraft}
                   saveReview={saveReview}
                   saving={saving}
+                  aiSummary={aiSummaries[group.child.id]}
+                  onAskAi={askAiForChild}
+                  onPrev={idx > 0 ? goToPrevChild : undefined}
+                  onNext={idx < sortedGroups.length - 1 ? goToNextChild : undefined}
+                  childIndex={idx + 1}
+                  totalChildren={sortedGroups.length}
+                  campaignCode={selectedCampaign}
                 />
               ))}
             </div>
@@ -472,6 +647,13 @@ function ChildRow({
   updateDraft,
   saveReview,
   saving,
+  aiSummary,
+  onAskAi,
+  onPrev,
+  onNext,
+  childIndex,
+  totalChildren,
+  campaignCode,
 }: {
   group: ChildGroup
   expanded: boolean
@@ -481,9 +663,21 @@ function ChildRow({
   updateDraft: (obsId: string, patch: Partial<DraftReview>) => void
   saveReview: (obsId: string) => void
   saving: Record<string, boolean>
+  aiSummary?: { loading: boolean; text?: string; error?: string; responses?: LLMResponse[] }
+  onAskAi: (childId: string, childName: string, childAge: string, obs: ObservationData[]) => void
+  onPrev?: () => void
+  onNext?: () => void
+  childIndex: number
+  totalChildren: number
+  campaignCode: string
 }) {
   const { child, observations: childObs, riskCounts, reviewStatus } = group
   const age = child.dob ? formatAge(child.dob) : null
+
+  // Group observations by module group (vitals vs head-to-toe)
+  const vitalModuleTypes = ['height', 'weight', 'vitals', 'spo2', 'hemoglobin', 'bp', 'muac']
+  const vitalObs = childObs.filter(o => vitalModuleTypes.includes(o.moduleType))
+  const examObs = childObs.filter(o => !vitalModuleTypes.includes(o.moduleType))
 
   return (
     <div className="overflow-hidden rounded-xl border border-gray-200 bg-white">
@@ -548,19 +742,117 @@ function ChildRow({
       {/* Expanded observations */}
       {expanded && (
         <div className="border-t border-gray-100 bg-gray-50 p-4">
-          <div className="space-y-4">
-            {childObs.map((obs) => (
-              <ObservationCard
-                key={obs.id}
-                obs={obs}
-                existingReview={reviewByObsId[obs.id]}
-                draft={getDraft(obs.id)}
-                onUpdateDraft={(patch) => updateDraft(obs.id, patch)}
-                onSave={() => saveReview(obs.id)}
-                isSaving={saving[obs.id] || false}
-              />
-            ))}
+          {/* Prev/Next navigation + actions */}
+          <div className="mb-4 flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <button
+                onClick={(e) => { e.stopPropagation(); onPrev?.() }}
+                disabled={!onPrev}
+                className="flex items-center gap-1 rounded-lg border border-gray-200 bg-white px-2.5 py-1.5 text-xs text-gray-600 hover:bg-gray-50 disabled:opacity-40"
+              >
+                <ChevronLeft className="h-3.5 w-3.5" /> Prev
+              </button>
+              <span className="text-xs text-gray-400">{childIndex} of {totalChildren}</span>
+              <button
+                onClick={(e) => { e.stopPropagation(); onNext?.() }}
+                disabled={!onNext}
+                className="flex items-center gap-1 rounded-lg border border-gray-200 bg-white px-2.5 py-1.5 text-xs text-gray-600 hover:bg-gray-50 disabled:opacity-40"
+              >
+                Next <ChevronRight className="h-3.5 w-3.5" />
+              </button>
+            </div>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={(e) => {
+                  e.stopPropagation()
+                  onAskAi(child.id, child.name, age || 'unknown', childObs)
+                }}
+                disabled={aiSummary?.loading}
+                className="flex items-center gap-2 rounded-lg border border-purple-300 bg-purple-50 px-3 py-1.5 text-xs font-medium text-purple-700 hover:bg-purple-100 disabled:opacity-60"
+              >
+                {aiSummary?.loading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Brain className="h-3.5 w-3.5" />}
+                {aiSummary?.loading ? 'Analyzing...' : aiSummary?.text ? 'Re-analyze' : 'AI Summary'}
+              </button>
+              <a
+                href={`/campaigns/${campaignCode}/children/${child.id}/child-report`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="flex items-center gap-1.5 rounded-lg border border-gray-200 bg-white px-3 py-1.5 text-xs font-medium text-gray-600 hover:bg-gray-50"
+              >
+                <FileText className="h-3.5 w-3.5" /> Report
+              </a>
+              {aiSummary?.responses?.[0] && (
+                <span className="text-[10px] text-gray-400">
+                  {aiSummary.responses[0].provider} ({((aiSummary.responses[0].latencyMs || 0) / 1000).toFixed(1)}s)
+                </span>
+              )}
+            </div>
           </div>
+
+          {/* AI Summary result */}
+          {aiSummary?.text && (
+            <div className="mb-4 rounded-xl border-2 border-purple-200 bg-purple-50/50 p-4">
+              <div className="flex items-center gap-2 mb-2">
+                <Brain className="h-4 w-4 text-purple-600" />
+                <span className="text-sm font-semibold text-purple-800">AI Clinical Summary</span>
+              </div>
+              <div className="prose prose-xs max-w-none text-xs text-gray-700 whitespace-pre-wrap">
+                {aiSummary.text}
+              </div>
+            </div>
+          )}
+
+          {aiSummary?.error && (
+            <div className="mb-4 rounded-lg border border-amber-200 bg-amber-50 p-3">
+              <p className="text-xs text-amber-700">{aiSummary.error}</p>
+              <p className="text-[10px] text-amber-500 mt-1">Ensure Ollama is running or configure cloud AI in Settings.</p>
+            </div>
+          )}
+
+          {/* Module-grouped observations */}
+          {vitalObs.length > 0 && (
+            <div className="mb-4">
+              <h4 className="mb-2 flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wide text-gray-500">
+                <span className="inline-block h-1.5 w-1.5 rounded-full bg-blue-400" />
+                Vitals ({vitalObs.length})
+              </h4>
+              <div className="space-y-3">
+                {vitalObs.map((obs) => (
+                  <ObservationCard
+                    key={obs.id}
+                    obs={obs}
+                    existingReview={reviewByObsId[obs.id]}
+                    draft={getDraft(obs.id)}
+                    onUpdateDraft={(patch) => updateDraft(obs.id, patch)}
+                    onSave={() => saveReview(obs.id)}
+                    isSaving={saving[obs.id] || false}
+                  />
+                ))}
+              </div>
+            </div>
+          )}
+
+          {examObs.length > 0 && (
+            <div>
+              <h4 className="mb-2 flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wide text-gray-500">
+                <span className="inline-block h-1.5 w-1.5 rounded-full bg-indigo-400" />
+                Head-to-Toe Examination ({examObs.length})
+              </h4>
+              <div className="space-y-3">
+                {examObs.map((obs) => (
+                  <ObservationCard
+                    key={obs.id}
+                    obs={obs}
+                    existingReview={reviewByObsId[obs.id]}
+                    draft={getDraft(obs.id)}
+                    onUpdateDraft={(patch) => updateDraft(obs.id, patch)}
+                    onSave={() => saveReview(obs.id)}
+                    isSaving={saving[obs.id] || false}
+                  />
+                ))}
+              </div>
+            </div>
+          )}
         </div>
       )}
     </div>
@@ -638,6 +930,28 @@ function ObservationCard({
       {summaryText && (
         <p className="mt-3 rounded-lg bg-gray-50 p-3 text-sm text-gray-700">{summaryText}</p>
       )}
+
+      {/* Nurse chips with severity colors */}
+      {obs.annotationData?.selectedChips && obs.annotationData.selectedChips.length > 0 && (
+        <div className="mt-3 flex flex-wrap gap-1.5">
+          {obs.annotationData.selectedChips.map(chip => {
+            const chipSeverities = (obs.annotationData as Record<string, unknown>)?.chipSeverities as Record<string, string> | undefined
+            const severity = chipSeverities?.[chip]
+            const colorClass = severity === 'severe' ? 'bg-red-50 border-red-200 text-red-700'
+              : severity === 'moderate' ? 'bg-amber-50 border-amber-200 text-amber-700'
+              : severity === 'mild' ? 'bg-yellow-50 border-yellow-200 text-yellow-700'
+              : 'bg-indigo-50 border-indigo-200 text-indigo-700'
+            return (
+              <span key={chip} className={`rounded-full border px-2 py-0.5 text-[10px] font-medium ${colorClass}`}>
+                {chip}{severity && severity !== 'normal' ? ` (${severity})` : ''}
+              </span>
+            )
+          })}
+        </div>
+      )}
+
+      {/* Evidence images */}
+      <EvidenceImages obs={obs} />
 
       {/* Existing review display */}
       {existingReview && (
@@ -727,6 +1041,69 @@ function ObservationCard({
         </div>
       )}
     </div>
+  )
+}
+
+// ── Evidence Images ──
+
+function EvidenceImages({ obs }: { obs: ObservationData }) {
+  const [expanded, setExpanded] = useState<string | null>(null)
+
+  const images: string[] = []
+  if (obs.mediaUrl) images.push(obs.mediaUrl)
+  if (obs.annotationData?.evidenceImage) images.push(obs.annotationData.evidenceImage)
+  if (obs.annotationData?.evidenceVideoFrames) {
+    images.push(...obs.annotationData.evidenceVideoFrames.slice(0, 4))
+  }
+
+  if (images.length === 0) return null
+
+  return (
+    <>
+      <div className="mt-3">
+        <div className="flex items-center gap-1.5 mb-2">
+          <ImageIcon className="h-3.5 w-3.5 text-gray-400" />
+          <span className="text-[10px] font-medium text-gray-500 uppercase tracking-wide">Evidence ({images.length})</span>
+        </div>
+        <div className="flex gap-2 overflow-x-auto">
+          {images.map((src, i) => (
+            <button
+              key={i}
+              onClick={(e) => { e.stopPropagation(); setExpanded(src) }}
+              className="flex-shrink-0 rounded-lg border border-gray-200 overflow-hidden hover:border-blue-400 transition-colors"
+            >
+              <img
+                src={src}
+                alt={`Evidence ${i + 1}`}
+                className="h-20 w-20 object-cover"
+                loading="lazy"
+              />
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* Lightbox */}
+      {expanded && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4"
+          onClick={() => setExpanded(null)}
+        >
+          <button
+            className="absolute top-4 right-4 rounded-full bg-white/20 p-2 text-white hover:bg-white/40"
+            onClick={() => setExpanded(null)}
+          >
+            <X className="h-5 w-5" />
+          </button>
+          <img
+            src={expanded}
+            alt="Evidence fullscreen"
+            className="max-h-[85vh] max-w-[90vw] rounded-lg object-contain"
+            onClick={(e) => e.stopPropagation()}
+          />
+        </div>
+      )}
+    </>
   )
 }
 

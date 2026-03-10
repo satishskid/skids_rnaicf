@@ -1,7 +1,7 @@
 // Doctor review screen — review an observation, add decision + findings
 // Decisions: approve, refer, follow_up, discharge, retake
 
-import React, { useState } from 'react'
+import React, { useState, useCallback } from 'react'
 import {
   View,
   Text,
@@ -16,6 +16,7 @@ import { colors, spacing, borderRadius, fontSize, fontWeight, shadow, getColorHe
 import { useAuth } from '../lib/AuthContext'
 import { apiCall } from '../lib/api'
 import { getModuleName, getModuleConfig } from '../lib/modules'
+import { buildClinicalPrompt, queryLLM, DEFAULT_LLM_CONFIG } from '../lib/ai/llm-gateway'
 import type { Observation } from '../lib/types'
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack'
 import type { RouteProp } from '@react-navigation/native'
@@ -55,9 +56,44 @@ export function DoctorReviewScreen({ navigation, route }: Props) {
   const [notes, setNotes] = useState('')
   const [retakeReason, setRetakeReason] = useState('')
   const [saving, setSaving] = useState(false)
+  const [aiLoading, setAiLoading] = useState(false)
+  const [aiSummary, setAiSummary] = useState<string | null>(null)
+  const [aiError, setAiError] = useState<string | null>(null)
 
   const config = getModuleConfig(observation.moduleType)
   const bgColor = config ? getColorHex(config.color) : '#6b7280'
+
+  const handleAskAi = useCallback(async () => {
+    setAiLoading(true)
+    setAiError(null)
+    try {
+      // Extract data from captureMetadata which may contain extra fields
+      const meta = observation.captureMetadata || {}
+      const obsForPrompt = [{
+        moduleType: observation.moduleType,
+        moduleName: getModuleName(observation.moduleType),
+        riskCategory: (meta.riskCategory as string) || 'unknown',
+        summaryText: (meta.summaryText as string) || observation.notes || 'No summary available',
+        nurseChips: (meta.selectedChips as string[]) || [],
+        chipSeverities: {} as Record<string, string>,
+        aiFindings: [],
+        notes: observation.notes || '',
+      }]
+      const childName = (meta.childName as string) || 'Unknown'
+      const messages = buildClinicalPrompt(childName, 'unknown', obsForPrompt)
+      const responses = await queryLLM(DEFAULT_LLM_CONFIG, messages)
+      const best = responses.find(r => !r.error) || responses[0]
+      if (best.error) {
+        setAiError(best.error)
+      } else {
+        setAiSummary(best.text)
+      }
+    } catch (err) {
+      setAiError(err instanceof Error ? err.message : 'AI request failed')
+    } finally {
+      setAiLoading(false)
+    }
+  }, [observation])
 
   const handleSubmitReview = async () => {
     if (!decision) {
@@ -149,6 +185,41 @@ export function DoctorReviewScreen({ navigation, route }: Props) {
             <View style={styles.notesBox}>
               <Text style={styles.notesLabel}>Nurse Notes</Text>
               <Text style={styles.notesText}>{observation.notes}</Text>
+            </View>
+          )}
+        </View>
+
+        {/* Ask AI */}
+        <View style={styles.section}>
+          <TouchableOpacity
+            style={styles.aiButton}
+            onPress={handleAskAi}
+            disabled={aiLoading}
+            activeOpacity={0.7}
+          >
+            {aiLoading ? (
+              <ActivityIndicator color="#7c3aed" size="small" />
+            ) : (
+              <Text style={styles.aiButtonIcon}>{'\u{1F9E0}'}</Text>
+            )}
+            <Text style={styles.aiButtonText}>
+              {aiLoading ? 'Analyzing...' : aiSummary ? 'Re-analyze with AI' : 'Ask AI for Clinical Summary'}
+            </Text>
+          </TouchableOpacity>
+
+          {aiSummary && (
+            <View style={styles.aiResult}>
+              <Text style={styles.aiResultTitle}>AI Clinical Summary</Text>
+              <Text style={styles.aiResultText}>{aiSummary}</Text>
+            </View>
+          )}
+
+          {aiError && (
+            <View style={styles.aiError}>
+              <Text style={styles.aiErrorText}>{aiError}</Text>
+              <Text style={styles.aiErrorHint}>
+                Ensure Ollama is running or configure cloud AI in settings.
+              </Text>
             </View>
           )}
         </View>
@@ -455,5 +526,63 @@ const styles = StyleSheet.create({
     color: colors.white,
     fontSize: fontSize.lg,
     fontWeight: fontWeight.bold,
+  },
+  // AI styles
+  aiButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: spacing.sm,
+    backgroundColor: '#f3e8ff',
+    borderWidth: 1,
+    borderColor: '#c4b5fd',
+    borderRadius: borderRadius.md,
+    paddingVertical: 14,
+    paddingHorizontal: spacing.md,
+    minHeight: 52,
+  },
+  aiButtonIcon: {
+    fontSize: 20,
+  },
+  aiButtonText: {
+    fontSize: fontSize.base,
+    fontWeight: fontWeight.semibold,
+    color: '#7c3aed',
+  },
+  aiResult: {
+    marginTop: spacing.sm,
+    backgroundColor: '#faf5ff',
+    borderWidth: 2,
+    borderColor: '#c4b5fd',
+    borderRadius: borderRadius.md,
+    padding: spacing.md,
+  },
+  aiResultTitle: {
+    fontSize: fontSize.sm,
+    fontWeight: fontWeight.bold,
+    color: '#6d28d9',
+    marginBottom: spacing.xs,
+  },
+  aiResultText: {
+    fontSize: fontSize.sm,
+    color: colors.text,
+    lineHeight: 20,
+  },
+  aiError: {
+    marginTop: spacing.sm,
+    backgroundColor: '#fffbeb',
+    borderWidth: 1,
+    borderColor: '#fcd34d',
+    borderRadius: borderRadius.md,
+    padding: spacing.md,
+  },
+  aiErrorText: {
+    fontSize: fontSize.sm,
+    color: '#b45309',
+  },
+  aiErrorHint: {
+    fontSize: fontSize.xs,
+    color: '#d97706',
+    marginTop: 4,
   },
 })

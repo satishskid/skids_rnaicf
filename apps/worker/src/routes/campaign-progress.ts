@@ -6,62 +6,67 @@
 import { Hono } from 'hono'
 import type { Bindings, Variables } from '../index'
 import { computeCampaignDashboard, MODULE_CONFIGS } from '@skids/shared'
-import type { Child, Observation, ClinicianReview, ModuleType } from '@skids/shared'
+import type { Child, ClinicianReview, ModuleType, SyncedObservation } from '@skids/shared'
 
 const app = new Hono<{ Bindings: Bindings; Variables: Variables }>()
 
 app.get('/:code', async (c) => {
-  const code = c.req.param('code')
-  const db = c.get('db')
+  try {
+    const code = c.req.param('code')
+    const db = c.get('db')
 
-  const [childRows, obsRows, reviewRows, campaignRow] = await Promise.all([
-    db.execute({ sql: 'SELECT * FROM children WHERE campaignCode = ?', args: [code] }),
-    db.execute({ sql: 'SELECT * FROM observations WHERE campaignCode = ?', args: [code] }),
-    db.execute({ sql: 'SELECT * FROM reviews WHERE campaignCode = ?', args: [code] }),
-    db.execute({ sql: 'SELECT * FROM campaigns WHERE code = ?', args: [code] }),
-  ])
+    const [childRows, obsRows, reviewRows, campaignRow] = await Promise.all([
+      db.execute({ sql: 'SELECT * FROM children WHERE campaign_code = ?', args: [code] }),
+      db.execute({ sql: 'SELECT * FROM observations WHERE campaign_code = ?', args: [code] }),
+      db.execute({ sql: 'SELECT * FROM reviews WHERE campaign_code = ?', args: [code] }),
+      db.execute({ sql: 'SELECT * FROM campaigns WHERE code = ?', args: [code] }),
+    ])
 
-  const campaign = campaignRow.rows?.[0] as any
-  if (!campaign) return c.json({ error: 'Campaign not found' }, 404)
+    const campaign = campaignRow.rows?.[0] as any
+    if (!campaign) return c.json({ error: 'Campaign not found' }, 404)
 
-  const enabledModules: ModuleType[] = campaign.enabled_modules
-    ? JSON.parse(campaign.enabled_modules)
-    : MODULE_CONFIGS.map(m => m.type)
+    const enabledModules: ModuleType[] = campaign.enabled_modules
+      ? JSON.parse(campaign.enabled_modules)
+      : MODULE_CONFIGS.map(m => m.type)
 
-  const children: Child[] = (childRows.rows ?? []).map((r: any) => ({
-    id: r.id,
-    name: r.name,
-    dob: r.dob,
-    gender: r.gender,
-    class: r.class,
-    campaignCode: r.campaignCode,
-  }))
+    const children: Child[] = (childRows.rows ?? []).map((r: any) => ({
+      id: r.id,
+      name: r.name,
+      dob: r.dob,
+      gender: r.gender,
+      class: r.class,
+      campaignCode: r.campaign_code,
+    }))
 
-  const observations: Observation[] = (obsRows.rows ?? []).map((r: any) => ({
-    id: r.id,
-    childId: r.childId,
-    moduleType: r.moduleType,
-    campaignCode: r.campaignCode,
-    annotationData: r.annotationData ? JSON.parse(r.annotationData) : undefined,
-    aiAnnotations: r.aiAnnotations ? JSON.parse(r.aiAnnotations) : undefined,
-    mediaUrl: r.mediaUrl,
-    createdAt: r.createdAt,
-    _nurseName: r.nurseName || r._nurseName,
-  }))
+    const observations = (obsRows.rows ?? []).map((r: any) => ({
+      id: r.id,
+      childId: r.child_id,
+      moduleType: r.module_type,
+      campaignCode: r.campaign_code,
+      annotationData: r.annotation_data ? JSON.parse(r.annotation_data) : undefined,
+      aiAnnotations: r.ai_annotations ? JSON.parse(r.ai_annotations) : undefined,
+      mediaUrl: r.media_url,
+      timestamp: r.timestamp || r.created_at,
+      _nurseName: r.screened_by,
+    })) as unknown as SyncedObservation[]
 
-  const reviews: Record<string, ClinicianReview> = {}
-  for (const r of (reviewRows.rows ?? []) as any[]) {
-    reviews[r.observationId || r.id] = {
-      decision: r.decision,
-      notes: r.notes,
-      reviewedBy: r.reviewedBy,
-      reviewedAt: r.reviewedAt,
+    const reviews: Record<string, ClinicianReview> = {}
+    for (const r of (reviewRows.rows ?? []) as any[]) {
+      reviews[r.observation_id] = {
+        decision: r.decision,
+        notes: r.notes,
+        reviewedBy: r.clinician_id,
+        reviewedAt: r.reviewed_at,
+      }
     }
+
+    const progress = computeCampaignDashboard(children, observations, reviews, enabledModules)
+
+    return c.json({ progress })
+  } catch (err: any) {
+    console.error('campaign-progress error:', err?.message)
+    return c.json({ error: 'Failed to compute campaign progress' }, 500)
   }
-
-  const progress = computeCampaignDashboard(children, observations, reviews, enabledModules)
-
-  return c.json({ progress })
 })
 
 export const campaignProgressRoutes = app

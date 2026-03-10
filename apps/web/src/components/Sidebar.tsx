@@ -8,15 +8,17 @@ import {
   Inbox,
   Globe,
   BookOpen,
+  Users,
 } from 'lucide-react'
 import { useAuth } from '../lib/auth'
 
 const allNavigation = [
   { name: 'Dashboard', to: '/', icon: LayoutDashboard, roles: undefined },
-  { name: 'Campaigns', to: '/campaigns', icon: Megaphone, roles: undefined },
+  { name: 'Campaigns', to: '/campaigns', icon: Megaphone, roles: ['admin', 'ops_manager', 'doctor', 'nurse'] as string[] },
   { name: 'Doctor Inbox', to: '/doctor-inbox', icon: Inbox, roles: ['doctor', 'admin', 'ops_manager'] as string[] },
   { name: 'Population Health', to: '/authority', icon: Globe, roles: ['authority', 'admin', 'ops_manager'] as string[] },
-  { name: 'Analytics', to: '/analytics', icon: BarChart3, roles: undefined },
+  { name: 'Analytics', to: '/analytics', icon: BarChart3, roles: ['admin', 'ops_manager', 'authority'] as string[] },
+  { name: 'Users', to: '/admin/users', icon: Users, roles: ['admin'] as string[] },
   { name: 'Documentation', to: '/docs', icon: BookOpen, roles: ['admin', 'doctor', 'nurse', 'ops_manager'] as string[] },
   { name: 'Settings', to: '/settings', icon: Settings, roles: undefined },
 ]

@@ -224,12 +224,14 @@ export function AnalyticsPage() {
         <div>
           {activeTab === 'overview' && summary && (
             <ExecutiveSummary
-              totalScreened={summary.totalScreened}
+              totalScreened={summary.screenedChildren}
               totalEnrolled={summary.totalChildren}
-              highRiskCount={summary.highRiskCount}
+              highRiskCount={summary.highRiskChildren}
               referralRate={summary.referralRate}
-              normalRate={summary.normalRate}
-              topConditions={summary.topConditions}
+              normalRate={summary.totalObservations > 0
+                ? Math.round(((summary.totalObservations - summary.highRiskChildren) / summary.totalObservations) * 100)
+                : 100}
+              topConditions={[]}
             />
           )}
 

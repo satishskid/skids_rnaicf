@@ -8,6 +8,7 @@ import { CampaignsPage } from './pages/Campaigns'
 import { CampaignDetailPage } from './pages/CampaignDetail'
 import { AnalyticsPage } from './pages/Analytics'
 import { SettingsPage } from './pages/Settings'
+import { UserManagementPage } from './pages/UserManagement'
 import { DoctorInboxPage } from './pages/DoctorInbox'
 import { AuthorityDashboardPage } from './pages/AuthorityDashboard'
 import { FourDReportPage } from './pages/FourDReport'
@@ -39,6 +40,7 @@ export function App() {
             <Route path="/doctor-inbox" element={<DoctorInboxPage />} />
             <Route path="/authority" element={<AuthorityDashboardPage />} />
             <Route path="/analytics" element={<AnalyticsPage />} />
+            <Route path="/admin/users" element={<UserManagementPage />} />
             <Route path="/settings" element={<SettingsPage />} />
           </Route>
 

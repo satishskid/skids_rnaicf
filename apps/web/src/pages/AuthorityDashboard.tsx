@@ -9,9 +9,14 @@ import {
   ChevronDown,
   Check,
   BarChart3,
+  ArrowLeft,
+  TrendingUp,
+  MapPin,
+  ChevronRight,
 } from 'lucide-react'
 import { StatsCard } from '../components/StatsCard'
 import { LoadingSpinner } from '../components/LoadingSpinner'
+import { CampaignProgress } from '../components/CampaignProgress'
 import { useApi } from '../lib/hooks'
 import { apiCall } from '../lib/api'
 import {
@@ -72,6 +77,7 @@ export function AuthorityDashboardPage() {
   const [sortField, setSortField] = useState<SortField>('name')
   const [sortDir, setSortDir] = useState<SortDir>('asc')
   const [dropdownOpen, setDropdownOpen] = useState(false)
+  const [drillDownCode, setDrillDownCode] = useState<string | null>(null)
 
   // Auto-select all active campaigns on first load
   useEffect(() => {
@@ -238,6 +244,58 @@ export function AuthorityDashboardPage() {
       .map(([mod, count]) => ({ module: mod, count }))
   }, [allObservations])
 
+  // ── Top conditions across all campaigns ──
+
+  const topConditions = useMemo(() => {
+    const conditionCounts: Record<string, { name: string; category: FourDCategory; icdCode: string; count: number }> = {}
+
+    for (const obs of allObservations) {
+      const chips = obs.annotationData?.selectedChips ?? []
+      for (const chip of chips) {
+        for (const cond of FOUR_D_CONDITIONS) {
+          if (cond.chipIds.includes(chip) && !conditionCounts[cond.id]) {
+            conditionCounts[cond.id] = {
+              name: cond.name,
+              category: cond.category,
+              icdCode: cond.icdCode || '',
+              count: 0,
+            }
+          }
+          if (cond.chipIds.includes(chip)) {
+            conditionCounts[cond.id].count++
+          }
+        }
+      }
+    }
+
+    return Object.values(conditionCounts)
+      .sort((a, b) => b.count - a.count)
+      .slice(0, 10)
+  }, [allObservations])
+
+  // ── Referral rate ──
+
+  const referralRate = useMemo(() => {
+    if (allObservations.length === 0) return 0
+    const highOrPossible = allObservations.filter((o) => {
+      const risk = o.aiAnnotations?.[0]?.riskCategory
+      return risk === 'high_risk' || risk === 'possible_risk'
+    }).length
+    return Math.round((highOrPossible / allObservations.length) * 100)
+  }, [allObservations])
+
+  // ── Location grouping ──
+
+  const locationGroups = useMemo(() => {
+    const groups: Record<string, { state: string; campaigns: typeof campaignRows }> = {}
+    for (const c of allCampaigns) {
+      if (!selectedCodes.has(c.code)) continue
+      const state = (c as any).state || (c as any).location?.state || 'Unknown'
+      if (!groups[state]) groups[state] = { state, campaigns: [] }
+    }
+    return groups
+  }, [allCampaigns, selectedCodes])
+
   // ── Campaign comparison table ──
 
   const campaignRows = useMemo(() => {
@@ -393,7 +451,7 @@ export function AuthorityDashboardPage() {
       {!fetching && selectedCodes.size > 0 && (
         <>
           {/* Population Summary Cards */}
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-5">
             <StatsCard
               title="Children Screened"
               value={totalScreened}
@@ -416,6 +474,13 @@ export function AuthorityDashboardPage() {
               color="red"
             />
             <StatsCard
+              title="Referral Rate"
+              value={`${referralRate}%`}
+              subtitle="Needs attention"
+              icon={TrendingUp}
+              color="yellow"
+            />
+            <StatsCard
               title="Active Campaigns"
               value={activeCampaignCount}
               subtitle={`${selectedCodes.size} selected total`}
@@ -424,10 +489,10 @@ export function AuthorityDashboardPage() {
             />
           </div>
 
-          {/* Prevalence Report */}
+          {/* 4D Category Summary Cards */}
           <div className="rounded-xl border border-gray-200 bg-white p-6">
             <h3 className="text-base font-semibold text-gray-900">
-              4D Prevalence Report
+              4D Health Categories
             </h3>
             <p className="mt-1 text-xs text-gray-500">
               Conditions detected across {totalScreened} screened children.
@@ -437,41 +502,117 @@ export function AuthorityDashboardPage() {
                 No screening data available.
               </p>
             ) : (
-              <div className="mt-4 space-y-3">
-                {prevalenceByCategory.map((item) => (
-                  <div key={item.category} className="flex items-center gap-3">
-                    <span
-                      className={`w-56 truncate rounded-md px-2 py-1 text-sm font-medium ${item.colors.badge}`}
+              <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
+                {prevalenceByCategory.map((item) => {
+                  const pct = item.totalConditions > 0
+                    ? Math.round((item.conditionsFound / item.totalConditions) * 100)
+                    : 0
+                  return (
+                    <div
+                      key={item.category}
+                      className={`rounded-lg border p-4 ${item.colors.bg} border-opacity-50`}
+                      style={{ borderColor: item.colors.text === 'text-red-700' ? '#fca5a5' : undefined }}
                     >
-                      {item.label}
-                    </span>
-                    <div className="flex-1">
-                      <div className="h-4 overflow-hidden rounded-full bg-gray-100">
-                        <div
-                          className={`h-4 rounded-full transition-all ${item.colors.bg.replace('-50', '-400')}`}
-                          style={{
-                            width: `${
-                              item.totalConditions > 0
-                                ? Math.min(
-                                    100,
-                                    (item.conditionsFound /
-                                      item.totalConditions) *
-                                      100,
-                                  )
-                                : 0
-                            }%`,
-                          }}
-                        />
+                      <div className="flex items-center justify-between">
+                        <span className={`text-sm font-semibold ${item.colors.text}`}>
+                          {item.label}
+                        </span>
+                        <span className={`rounded-full px-2 py-0.5 text-xs font-bold ${item.colors.badge}`}>
+                          {pct}%
+                        </span>
+                      </div>
+                      <div className="mt-3">
+                        <div className="h-2 overflow-hidden rounded-full bg-white/60">
+                          <div
+                            className="h-2 rounded-full transition-all"
+                            style={{
+                              width: `${pct}%`,
+                              backgroundColor: item.colors.text.includes('red') ? '#ef4444'
+                                : item.colors.text.includes('amber') ? '#f59e0b'
+                                : item.colors.text.includes('blue') ? '#3b82f6'
+                                : item.colors.text.includes('purple') ? '#8b5cf6'
+                                : item.colors.text.includes('orange') ? '#f97316'
+                                : item.colors.text.includes('pink') ? '#ec4899'
+                                : item.colors.text.includes('teal') ? '#14b8a6'
+                                : '#6b7280',
+                            }}
+                          />
+                        </div>
+                      </div>
+                      <div className="mt-2 flex items-center justify-between text-xs">
+                        <span className="text-gray-500">
+                          {item.conditionsFound} conditions found
+                        </span>
+                        <span className="text-gray-400">
+                          of {item.totalConditions}
+                        </span>
                       </div>
                     </div>
-                    <span className="w-24 text-right text-xs font-medium text-gray-500">
-                      {item.conditionsFound} / {item.totalConditions} conds
-                    </span>
-                  </div>
-                ))}
+                  )
+                })}
               </div>
             )}
           </div>
+
+          {/* Top Conditions Table */}
+          {topConditions.length > 0 && (
+            <div className="rounded-xl border border-gray-200 bg-white">
+              <div className="border-b border-gray-200 px-6 py-4">
+                <h3 className="text-base font-semibold text-gray-900">
+                  Top Conditions Detected
+                </h3>
+                <p className="text-xs text-gray-500">
+                  Most frequently identified conditions across all selected campaigns
+                </p>
+              </div>
+              <div className="overflow-x-auto">
+                <table className="min-w-full divide-y divide-gray-200">
+                  <thead className="bg-gray-50">
+                    <tr>
+                      <th className="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wider text-gray-500">#</th>
+                      <th className="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wider text-gray-500">Condition</th>
+                      <th className="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wider text-gray-500">Category</th>
+                      <th className="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wider text-gray-500">ICD-10</th>
+                      <th className="px-6 py-3 text-right text-xs font-semibold uppercase tracking-wider text-gray-500">Count</th>
+                      <th className="px-6 py-3 text-right text-xs font-semibold uppercase tracking-wider text-gray-500">Prevalence</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-100">
+                    {topConditions.map((cond, idx) => {
+                      const prevalence = totalScreened > 0
+                        ? ((cond.count / totalScreened) * 100).toFixed(1)
+                        : '0.0'
+                      const catColors = FOUR_D_CATEGORY_COLORS[cond.category]
+                      return (
+                        <tr key={cond.name} className="hover:bg-gray-50">
+                          <td className="px-6 py-3 text-sm text-gray-400">{idx + 1}</td>
+                          <td className="px-6 py-3 text-sm font-medium text-gray-900">{cond.name}</td>
+                          <td className="px-6 py-3">
+                            <span className={`inline-flex rounded-full px-2 py-0.5 text-xs font-medium ${catColors.badge}`}>
+                              {FOUR_D_CATEGORY_LABELS[cond.category]}
+                            </span>
+                          </td>
+                          <td className="px-6 py-3 font-mono text-xs text-gray-500">{cond.icdCode || '-'}</td>
+                          <td className="px-6 py-3 text-right text-sm font-semibold text-gray-900">{cond.count}</td>
+                          <td className="px-6 py-3 text-right">
+                            <div className="flex items-center justify-end gap-2">
+                              <div className="h-1.5 w-12 rounded-full bg-gray-100">
+                                <div
+                                  className="h-1.5 rounded-full bg-blue-500"
+                                  style={{ width: `${Math.min(100, parseFloat(prevalence))}%` }}
+                                />
+                              </div>
+                              <span className="text-xs font-medium text-gray-600">{prevalence}%</span>
+                            </div>
+                          </td>
+                        </tr>
+                      )
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
 
           {/* Risk Distribution */}
           <div className="rounded-xl border border-gray-200 bg-white p-6">
@@ -510,12 +651,35 @@ export function AuthorityDashboardPage() {
             )}
           </div>
 
+          {/* Drill-down View */}
+          {drillDownCode && (
+            <div className="rounded-xl border-2 border-blue-200 bg-blue-50/30 p-4">
+              <div className="mb-4 flex items-center gap-3">
+                <button
+                  onClick={() => setDrillDownCode(null)}
+                  className="flex items-center gap-1 rounded-lg border border-gray-300 bg-white px-3 py-1.5 text-xs font-medium text-gray-700 hover:bg-gray-50"
+                >
+                  <ArrowLeft className="h-3 w-3" />
+                  Back to Overview
+                </button>
+                <ChevronRight className="h-4 w-4 text-gray-400" />
+                <span className="text-sm font-semibold text-blue-800">
+                  {allCampaigns.find(c => c.code === drillDownCode)?.name || drillDownCode}
+                </span>
+              </div>
+              <CampaignProgress campaignCode={drillDownCode} />
+            </div>
+          )}
+
           {/* Campaign Comparison Table */}
           <div className="rounded-xl border border-gray-200 bg-white">
             <div className="border-b border-gray-200 px-6 py-4">
-              <h3 className="text-base font-semibold text-gray-900">
-                Campaign Comparison
-              </h3>
+              <div className="flex items-center justify-between">
+                <h3 className="text-base font-semibold text-gray-900">
+                  Campaign Comparison
+                </h3>
+                <span className="text-xs text-gray-400">Click a row to drill down</span>
+              </div>
             </div>
             {sortedCampaignRows.length === 0 ? (
               <p className="px-6 py-8 text-center text-sm text-gray-400">
@@ -567,10 +731,14 @@ export function AuthorityDashboardPage() {
                     {sortedCampaignRows.map((row) => (
                       <tr
                         key={row.code}
-                        className="transition-colors hover:bg-gray-50"
+                        className={`cursor-pointer transition-colors hover:bg-blue-50 ${drillDownCode === row.code ? 'bg-blue-50 ring-1 ring-inset ring-blue-200' : ''}`}
+                        onClick={() => setDrillDownCode(row.code === drillDownCode ? null : row.code)}
                       >
-                        <td className="whitespace-nowrap px-6 py-4 text-sm font-medium text-gray-900">
-                          {row.name}
+                        <td className="whitespace-nowrap px-6 py-4 text-sm font-medium text-blue-700">
+                          <div className="flex items-center gap-1">
+                            {row.name}
+                            <ChevronRight className="h-3 w-3 text-blue-400" />
+                          </div>
                         </td>
                         <td className="whitespace-nowrap px-6 py-4 text-sm text-gray-600">
                           {row.childrenCount}

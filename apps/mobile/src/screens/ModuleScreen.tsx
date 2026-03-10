@@ -1,7 +1,7 @@
-// Module screen — shows module info, capture UI, and observation saving
-// Handles photo/video/audio/value/form capture types with appropriate UI
+// Module screen — shows module info, capture UI, AI analysis, and observation saving
+// Handles photo/video/audio/value/form capture types with real camera & audio
 
-import React, { useState, useRef } from 'react'
+import React, { useState, useRef, useEffect, useMemo } from 'react'
 import {
   View,
   Text,
@@ -12,18 +12,33 @@ import {
   ActivityIndicator,
   Alert,
   Platform,
+  Image,
 } from 'react-native'
+import * as ImagePicker from 'expo-image-picker'
+import { Audio } from 'expo-av'
 import { colors, spacing, borderRadius, fontSize, fontWeight, shadow, getColorHex } from '../theme'
 import { useAuth } from '../lib/AuthContext'
 import { apiCall } from '../lib/api'
-import { MODULE_CONFIGS, getModuleConfig } from '../lib/modules'
-import type { ModuleConfig } from '../lib/modules'
+import { getModuleConfig } from '../lib/modules'
+import { runLocalAI, type AIResult } from '../lib/ai-engine'
+import { AnnotationChips } from '../components/AnnotationChips'
+import { AIResultCard } from '../components/AIResultCard'
+import { getChipsForModule, getModuleGuidance } from '../lib/annotations'
+import { useSyncEngine } from '../lib/sync-engine'
+import { calculateAgeInMonths, formatAge } from '../lib/types'
 import type { ModuleType } from '../lib/types'
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack'
 import type { RouteProp } from '@react-navigation/native'
 
 type RootStackParamList = {
-  Module: { moduleType: ModuleType; campaignCode?: string; childId?: string }
+  Module: {
+    moduleType: ModuleType; campaignCode?: string; childId?: string
+    childDob?: string; childGender?: 'male' | 'female'; childName?: string
+    batchMode?: boolean; batchIndex?: number; batchTotal?: number; batchQueue?: string
+  }
+  BatchSummary: {
+    campaignCode: string; childId: string; childName: string; completedModules: string
+  }
 }
 
 interface Props {
@@ -53,15 +68,72 @@ const CAPTURE_TYPE_LABELS: Record<string, string> = {
 }
 
 export function ModuleScreen({ navigation, route }: Props) {
-  const { moduleType, campaignCode, childId } = route.params
+  const { moduleType, campaignCode, childId, childDob, childGender, childName,
+    batchMode, batchIndex = 0, batchTotal = 0, batchQueue } = route.params
   const { token } = useAuth()
+  const { addObservation } = useSyncEngine(token)
 
   const moduleConfig = getModuleConfig(moduleType)
 
+  // Batch mode — parse queue of module types
+  const batchModules = useMemo(() =>
+    batchQueue ? batchQueue.split(',').filter(Boolean) as ModuleType[] : [],
+    [batchQueue]
+  )
+
   const [notes, setNotes] = useState('')
   const [valueInput, setValueInput] = useState('')
+  const [capturedUri, setCapturedUri] = useState<string | null>(null)
   const [captureStarted, setCaptureStarted] = useState(false)
+  const [isRecordingAudio, setIsRecordingAudio] = useState(false)
+  const [audioDuration, setAudioDuration] = useState(0)
+  const audioRecordingRef = useRef<Audio.Recording | null>(null)
+  const audioDurationRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const [saving, setSaving] = useState(false)
+
+  // ── AI & Annotation state ─────────────────────
+  const [selectedChips, setSelectedChips] = useState<string[]>([])
+  const [chipSeverities, setChipSeverities] = useState<Record<string, string>>({})
+  const [aiResult, setAiResult] = useState<AIResult | null>(null)
+
+  const chips = useMemo(() => getChipsForModule(moduleType), [moduleType])
+  const guidance = useMemo(() => getModuleGuidance(moduleType), [moduleType])
+  const ageMonths = childDob ? calculateAgeInMonths(childDob) : undefined
+  const childAge = childDob ? formatAge(childDob) : undefined
+
+  // Run local AI when value input changes (debounced)
+  useEffect(() => {
+    if (moduleConfig?.captureType !== 'value' || !valueInput.trim()) {
+      setAiResult(null)
+      return
+    }
+    const timer = setTimeout(() => {
+      const result = runLocalAI(moduleType, valueInput.trim(), {
+        ageMonths: ageMonths ?? 60,
+        gender: childGender ?? 'male',
+      })
+      setAiResult(result)
+      // Auto-select high-confidence AI-suggested chips
+      if (result?.suggestedChips && result.confidence >= 0.85) {
+        setSelectedChips(prev => {
+          const newSet = new Set(prev)
+          for (const chipId of result.suggestedChips) newSet.add(chipId)
+          return Array.from(newSet)
+        })
+      }
+    }, 400)
+    return () => clearTimeout(timer)
+  }, [valueInput, moduleType, ageMonths, childGender])
+
+  const handleToggleChip = (chipId: string) => {
+    setSelectedChips(prev =>
+      prev.includes(chipId) ? prev.filter(c => c !== chipId) : [...prev, chipId]
+    )
+  }
+
+  const handleSetSeverity = (chipId: string, severity: string) => {
+    setChipSeverities(prev => ({ ...prev, [chipId]: severity }))
+  }
 
   if (!moduleConfig) {
     return (
@@ -79,6 +151,99 @@ export function ModuleScreen({ navigation, route }: Props) {
 
   const bgColor = getColorHex(moduleConfig.color)
   const emoji = ICON_EMOJI[moduleConfig.icon] || '\u{1F3E5}'
+
+  // ── Media capture handlers ─────────────────────
+
+  const handlePhotoCapture = async () => {
+    const permResult = await ImagePicker.requestCameraPermissionsAsync()
+    if (!permResult.granted) {
+      Alert.alert('Permission Required', 'Camera access is needed to capture photos. Please enable it in Settings.')
+      return
+    }
+    const result = await ImagePicker.launchCameraAsync({
+      mediaTypes: ['images'],
+      quality: 0.8,
+      allowsEditing: false,
+      cameraType: moduleConfig.cameraFacing === 'user'
+        ? ImagePicker.CameraType.front
+        : ImagePicker.CameraType.back,
+    })
+    if (!result.canceled && result.assets[0]) {
+      setCapturedUri(result.assets[0].uri)
+      setCaptureStarted(true)
+    }
+  }
+
+  const handleVideoCapture = async () => {
+    const permResult = await ImagePicker.requestCameraPermissionsAsync()
+    if (!permResult.granted) {
+      Alert.alert('Permission Required', 'Camera access is needed to record video. Please enable it in Settings.')
+      return
+    }
+    const result = await ImagePicker.launchCameraAsync({
+      mediaTypes: ['videos'],
+      videoMaxDuration: 30,
+      cameraType: moduleConfig.cameraFacing === 'user'
+        ? ImagePicker.CameraType.front
+        : ImagePicker.CameraType.back,
+    })
+    if (!result.canceled && result.assets[0]) {
+      setCapturedUri(result.assets[0].uri)
+      setCaptureStarted(true)
+    }
+  }
+
+  const handleStartAudioRecording = async () => {
+    try {
+      const permResult = await Audio.requestPermissionsAsync()
+      if (!permResult.granted) {
+        Alert.alert('Permission Required', 'Microphone access is needed to record audio. Please enable it in Settings.')
+        return
+      }
+      await Audio.setAudioModeAsync({
+        allowsRecordingIOS: true,
+        playsInSilentModeIOS: true,
+      })
+      const recording = new Audio.Recording()
+      await recording.prepareToRecordAsync(Audio.RecordingOptionsPresets.HIGH_QUALITY)
+      await recording.startAsync()
+      audioRecordingRef.current = recording
+      setIsRecordingAudio(true)
+      setCaptureStarted(true)
+      setAudioDuration(0)
+      audioDurationRef.current = setInterval(() => {
+        setAudioDuration(prev => prev + 1)
+      }, 1000)
+    } catch {
+      Alert.alert('Error', 'Failed to start audio recording.')
+    }
+  }
+
+  const handleStopAudioRecording = async () => {
+    try {
+      if (audioDurationRef.current) {
+        clearInterval(audioDurationRef.current)
+        audioDurationRef.current = null
+      }
+      if (audioRecordingRef.current) {
+        await audioRecordingRef.current.stopAndUnloadAsync()
+        const uri = audioRecordingRef.current.getURI()
+        audioRecordingRef.current = null
+        setIsRecordingAudio(false)
+        if (uri) setCapturedUri(uri)
+      }
+    } catch {
+      Alert.alert('Error', 'Failed to stop audio recording.')
+      setIsRecordingAudio(false)
+    }
+  }
+
+  const handleRetake = () => {
+    setCapturedUri(null)
+    setCaptureStarted(false)
+  }
+
+  // ── Save observation ───────────────────────────
 
   const handleSaveObservation = async () => {
     setSaving(true)
@@ -100,15 +265,82 @@ export function ModuleScreen({ navigation, route }: Props) {
         payload.value = parseFloat(valueInput) || valueInput.trim()
       }
 
-      await apiCall('/api/observations', {
-        method: 'POST',
-        token: token || undefined,
-        body: JSON.stringify(payload),
-      })
+      // Include captured media URI
+      if (capturedUri) {
+        payload.mediaUrl = capturedUri
+        payload.mediaType = moduleConfig.captureType === 'audio' ? 'audio'
+          : moduleConfig.captureType === 'video' ? 'video'
+          : 'image'
+      }
+
+      // Include annotation chips
+      if (selectedChips.length > 0) {
+        payload.annotations = selectedChips.map(chipId => ({
+          chipId,
+          severity: chipSeverities[chipId] || undefined,
+        }))
+      }
+
+      // Include AI analysis metadata
+      if (aiResult) {
+        payload.aiAnalysis = {
+          classification: aiResult.classification,
+          confidence: aiResult.confidence,
+          summary: aiResult.summary,
+          zScore: aiResult.zScore,
+          percentile: aiResult.percentile,
+          suggestedChips: aiResult.suggestedChips,
+        }
+      }
+
+      // Try online save first, fall back to offline queue
+      let savedOffline = false
+      try {
+        await apiCall('/api/observations', {
+          method: 'POST',
+          token: token || undefined,
+          body: JSON.stringify(payload),
+        })
+      } catch {
+        // Offline or error — queue for later sync
+        await addObservation(payload)
+        savedOffline = true
+      }
+
+      // Batch mode: auto-advance to next module or show summary
+      if (batchMode && batchModules.length > 0) {
+        const nextIndex = batchIndex + 1
+        if (nextIndex < batchModules.length) {
+          navigation.replace('Module', {
+            moduleType: batchModules[nextIndex],
+            campaignCode,
+            childId,
+            childDob,
+            childGender,
+            childName,
+            batchMode: true,
+            batchIndex: nextIndex,
+            batchTotal,
+            batchQueue,
+          })
+        } else {
+          // All done — show summary
+          const completedStr = batchModules.join(',')
+          navigation.replace('BatchSummary', {
+            campaignCode: campaignCode || '',
+            childId: childId || '',
+            childName: childName || '',
+            completedModules: completedStr,
+          })
+        }
+        return
+      }
 
       Alert.alert(
-        'Observation Saved',
-        `${moduleConfig.name} observation has been recorded.`,
+        savedOffline ? 'Saved Offline' : 'Observation Saved',
+        savedOffline
+          ? `${moduleConfig.name} observation queued — will sync when online.`
+          : `${moduleConfig.name} observation has been recorded.`,
         [{ text: 'OK', onPress: () => navigation.goBack() }]
       )
     } catch (err: unknown) {
@@ -118,6 +350,8 @@ export function ModuleScreen({ navigation, route }: Props) {
       setSaving(false)
     }
   }
+
+  // ── Capture UI rendering ───────────────────────
 
   const renderCaptureUI = () => {
     if (moduleConfig.captureType === 'value') {
@@ -169,61 +403,110 @@ export function ModuleScreen({ navigation, route }: Props) {
       )
     }
 
-    // Photo, Video, Audio capture
-    return (
-      <View style={styles.captureSection}>
-        <Text style={styles.captureSectionTitle}>
-          {CAPTURE_TYPE_LABELS[moduleConfig.captureType] || 'Capture'}
-        </Text>
+    // ── Photo / Video capture ───────────────────
 
-        {!captureStarted ? (
-          <TouchableOpacity
-            style={[styles.startCaptureButton, { backgroundColor: bgColor }]}
-            onPress={() => setCaptureStarted(true)}
-            activeOpacity={0.8}
-          >
-            <Text style={styles.startCaptureEmoji}>
-              {moduleConfig.captureType === 'photo'
-                ? '\u{1F4F7}'
-                : moduleConfig.captureType === 'video'
-                ? '\u{1F3AC}'
-                : '\u{1F3A4}'}
-            </Text>
-            <Text style={styles.startCaptureText}>Start Capture</Text>
-            <Text style={styles.startCaptureHint}>
-              {moduleConfig.cameraFacing === 'user'
-                ? 'Front camera'
-                : moduleConfig.cameraFacing === 'environment'
-                ? 'Rear camera'
-                : 'Default camera'}
-            </Text>
-          </TouchableOpacity>
-        ) : (
-          <View style={styles.capturePreview}>
-            <View style={[styles.cameraPlaceholder, { borderColor: bgColor }]}>
-              <Text style={styles.cameraPlaceholderEmoji}>{emoji}</Text>
-              <Text style={styles.cameraPlaceholderText}>
-                Camera preview for {moduleConfig.name}
-              </Text>
-              <Text style={styles.cameraPlaceholderHint}>
-                {moduleConfig.captureType === 'photo'
-                  ? 'Tap to capture photo'
-                  : moduleConfig.captureType === 'video'
-                  ? 'Recording in progress...'
-                  : 'Recording audio...'}
-              </Text>
-            </View>
+    if (moduleConfig.captureType === 'photo' || moduleConfig.captureType === 'video') {
+      const isPhoto = moduleConfig.captureType === 'photo'
+      return (
+        <View style={styles.captureSection}>
+          <Text style={styles.captureSectionTitle}>
+            {CAPTURE_TYPE_LABELS[moduleConfig.captureType]}
+          </Text>
 
+          {!capturedUri ? (
             <TouchableOpacity
-              style={styles.captureActionButton}
-              onPress={() => setCaptureStarted(false)}
+              style={[styles.startCaptureButton, { backgroundColor: bgColor }]}
+              onPress={isPhoto ? handlePhotoCapture : handleVideoCapture}
+              activeOpacity={0.8}
             >
-              <Text style={styles.captureActionText}>Done Capturing</Text>
+              <Text style={styles.startCaptureEmoji}>
+                {isPhoto ? '\u{1F4F7}' : '\u{1F3AC}'}
+              </Text>
+              <Text style={styles.startCaptureText}>
+                {isPhoto ? 'Take Photo' : 'Record Video'}
+              </Text>
+              <Text style={styles.startCaptureHint}>
+                {moduleConfig.cameraFacing === 'user' ? 'Front camera' : 'Rear camera'}
+              </Text>
             </TouchableOpacity>
-          </View>
-        )}
-      </View>
-    )
+          ) : (
+            <View style={styles.capturePreview}>
+              {isPhoto ? (
+                <Image
+                  source={{ uri: capturedUri }}
+                  style={styles.capturedImage}
+                  resizeMode="cover"
+                />
+              ) : (
+                <View style={[styles.cameraPlaceholder, { borderColor: bgColor }]}>
+                  <Text style={styles.cameraPlaceholderEmoji}>{'\u{1F3AC}'}</Text>
+                  <Text style={styles.cameraPlaceholderText}>Video recorded</Text>
+                  <Text style={styles.cameraPlaceholderHint}>
+                    {capturedUri.split('/').pop()?.slice(0, 30)}
+                  </Text>
+                </View>
+              )}
+              <TouchableOpacity style={styles.captureActionButton} onPress={handleRetake}>
+                <Text style={styles.captureActionText}>Retake</Text>
+              </TouchableOpacity>
+            </View>
+          )}
+        </View>
+      )
+    }
+
+    // ── Audio capture ───────────────────────────
+
+    if (moduleConfig.captureType === 'audio') {
+      return (
+        <View style={styles.captureSection}>
+          <Text style={styles.captureSectionTitle}>Audio Recording</Text>
+
+          {!capturedUri && !isRecordingAudio ? (
+            <TouchableOpacity
+              style={[styles.startCaptureButton, { backgroundColor: bgColor }]}
+              onPress={handleStartAudioRecording}
+              activeOpacity={0.8}
+            >
+              <Text style={styles.startCaptureEmoji}>{'\u{1F3A4}'}</Text>
+              <Text style={styles.startCaptureText}>Start Recording</Text>
+              <Text style={styles.startCaptureHint}>Tap to begin audio capture</Text>
+            </TouchableOpacity>
+          ) : isRecordingAudio ? (
+            <View style={styles.capturePreview}>
+              <View style={[styles.cameraPlaceholder, { borderColor: '#dc2626' }]}>
+                <Text style={styles.cameraPlaceholderEmoji}>{'\u{1F534}'}</Text>
+                <Text style={styles.cameraPlaceholderText}>Recording...</Text>
+                <Text style={styles.cameraPlaceholderHint}>
+                  {Math.floor(audioDuration / 60)}:{(audioDuration % 60).toString().padStart(2, '0')}
+                </Text>
+              </View>
+              <TouchableOpacity
+                style={[styles.captureActionButton, { borderColor: '#dc2626' }]}
+                onPress={handleStopAudioRecording}
+              >
+                <Text style={[styles.captureActionText, { color: '#dc2626' }]}>Stop Recording</Text>
+              </TouchableOpacity>
+            </View>
+          ) : (
+            <View style={styles.capturePreview}>
+              <View style={[styles.cameraPlaceholder, { borderColor: bgColor }]}>
+                <Text style={styles.cameraPlaceholderEmoji}>{'\u{2705}'}</Text>
+                <Text style={styles.cameraPlaceholderText}>Audio recorded</Text>
+                <Text style={styles.cameraPlaceholderHint}>
+                  Duration: {Math.floor(audioDuration / 60)}:{(audioDuration % 60).toString().padStart(2, '0')}
+                </Text>
+              </View>
+              <TouchableOpacity style={styles.captureActionButton} onPress={handleRetake}>
+                <Text style={styles.captureActionText}>Re-record</Text>
+              </TouchableOpacity>
+            </View>
+          )}
+        </View>
+      )
+    }
+
+    return null
   }
 
   return (
@@ -232,6 +515,20 @@ export function ModuleScreen({ navigation, route }: Props) {
         contentContainerStyle={styles.scrollContent}
         keyboardShouldPersistTaps="handled"
       >
+        {/* Batch Progress Bar */}
+        {batchMode && batchTotal > 0 && (
+          <View style={styles.batchProgressBar}>
+            <Text style={styles.batchProgressText}>
+              Module {batchIndex + 1} of {batchTotal}
+            </Text>
+            <View style={styles.batchProgressTrack}>
+              <View style={[styles.batchProgressFill, {
+                width: `${Math.round(((batchIndex + 1) / batchTotal) * 100)}%`
+              }]} />
+            </View>
+          </View>
+        )}
+
         {/* Module Info Header */}
         <View style={styles.moduleHeader}>
           <View style={[styles.moduleIconLarge, { backgroundColor: bgColor }]}>
@@ -265,8 +562,85 @@ export function ModuleScreen({ navigation, route }: Props) {
           </View>
         </View>
 
+        {/* Child indicator */}
+        {childId && (
+          <View style={styles.childIndicator}>
+            <Text style={styles.childIndicatorText}>
+              {'\u{1F9D2}'} {childName || childId.slice(0, 8)}
+              {childAge ? ` | ${childAge}` : ''}
+              {childGender ? ` | ${childGender === 'male' ? 'M' : 'F'}` : ''}
+            </Text>
+          </View>
+        )}
+
+        {/* AI Status Indicator */}
+        <View style={[
+          styles.aiStatusBar,
+          moduleConfig?.captureType === 'value'
+            ? (aiResult
+              ? (aiResult.classification?.toLowerCase().includes('normal')
+                ? styles.aiStatusNormal
+                : styles.aiStatusFlagged)
+              : styles.aiStatusReady)
+            : styles.aiStatusNA
+        ]}>
+          <View style={[
+            styles.aiStatusDot,
+            moduleConfig?.captureType === 'value'
+              ? (aiResult ? (aiResult.classification?.toLowerCase().includes('normal') ? styles.aiDotNormal : styles.aiDotFlagged) : styles.aiDotReady)
+              : styles.aiDotNA
+          ]} />
+          <Text style={styles.aiStatusText}>
+            {moduleConfig?.captureType === 'value'
+              ? (aiResult
+                ? `AI: ${aiResult.classification}`
+                : (valueInput.trim() ? 'AI Analyzing...' : 'AI Ready \u2014 enter measurement'))
+              : 'AI: Visual analysis coming soon'}
+          </Text>
+        </View>
+
+        {/* What to Look For Guidance */}
+        {guidance && (
+          <View style={styles.guidanceSection}>
+            <Text style={styles.guidanceSectionTitle}>What to Look For</Text>
+            <Text style={styles.guidanceInstruction}>{guidance.instruction}</Text>
+            {guidance.lookFor.map((item, i) => (
+              <View key={i} style={styles.guidanceItem}>
+                <Text style={styles.guidanceBullet}>{'\u2022'}</Text>
+                <Text style={styles.guidanceText}>{item}</Text>
+              </View>
+            ))}
+          </View>
+        )}
+
         {/* Capture UI */}
         {renderCaptureUI()}
+
+        {/* AI Result Card (for value modules) */}
+        {aiResult && (
+          <AIResultCard result={aiResult} moduleType={moduleType} childAge={childAge} />
+        )}
+
+        {/* Clinical Findings Chips */}
+        {chips.length > 0 && (captureStarted || valueInput.trim() || moduleConfig.captureType === 'form') && (
+          <AnnotationChips
+            chips={chips}
+            selectedChips={selectedChips}
+            chipSeverities={chipSeverities}
+            onToggleChip={handleToggleChip}
+            onSetSeverity={handleSetSeverity}
+            aiSuggestedChips={aiResult?.suggestedChips || []}
+          />
+        )}
+
+        {/* AI chip selection banner */}
+        {aiResult && aiResult.suggestedChips.length > 0 && selectedChips.length > 0 && (
+          <View style={styles.aiChipsBanner}>
+            <Text style={styles.aiChipsBannerText}>
+              AI selected {aiResult.suggestedChips.length} finding(s) — review and adjust above
+            </Text>
+          </View>
+        )}
 
         {/* Notes */}
         <View style={styles.notesSection}>
@@ -293,9 +667,46 @@ export function ModuleScreen({ navigation, route }: Props) {
           {saving ? (
             <ActivityIndicator color={colors.white} size="small" />
           ) : (
-            <Text style={styles.saveButtonText}>Save Observation</Text>
+            <Text style={styles.saveButtonText}>
+              {batchMode ? 'Save & Next' : 'Save Observation'}
+            </Text>
           )}
         </TouchableOpacity>
+
+        {/* Skip Module (batch mode only) */}
+        {batchMode && batchModules.length > 0 && (
+          <TouchableOpacity
+            style={styles.skipButton}
+            onPress={() => {
+              const nextIndex = batchIndex + 1
+              if (nextIndex < batchModules.length) {
+                navigation.replace('Module', {
+                  moduleType: batchModules[nextIndex],
+                  campaignCode,
+                  childId,
+                  childDob,
+                  childGender,
+                  childName,
+                  batchMode: true,
+                  batchIndex: nextIndex,
+                  batchTotal,
+                  batchQueue,
+                })
+              } else {
+                const completedStr = batchModules.slice(0, batchIndex).join(',')
+                navigation.replace('BatchSummary', {
+                  campaignCode: campaignCode || '',
+                  childId: childId || '',
+                  childName: childName || '',
+                  completedModules: completedStr,
+                })
+              }
+            }}
+            activeOpacity={0.7}
+          >
+            <Text style={styles.skipButtonText}>Skip Module</Text>
+          </TouchableOpacity>
+        )}
       </ScrollView>
     </View>
   )
@@ -408,6 +819,21 @@ const styles = StyleSheet.create({
     fontWeight: fontWeight.bold,
     textTransform: 'uppercase',
   },
+  // Child indicator
+  childIndicator: {
+    backgroundColor: '#eff6ff',
+    borderRadius: borderRadius.md,
+    padding: spacing.sm,
+    marginBottom: spacing.md,
+    borderWidth: 1,
+    borderColor: '#bfdbfe',
+  },
+  childIndicatorText: {
+    fontSize: fontSize.sm,
+    color: '#1e40af',
+    fontWeight: fontWeight.medium,
+    textAlign: 'center',
+  },
   // Capture section
   captureSection: {
     backgroundColor: colors.surface,
@@ -489,13 +915,19 @@ const styles = StyleSheet.create({
   capturePreview: {
     gap: spacing.md,
   },
+  capturedImage: {
+    width: '100%',
+    height: 280,
+    borderRadius: borderRadius.lg,
+    backgroundColor: '#1a1a2e',
+  },
   cameraPlaceholder: {
     backgroundColor: '#1a1a2e',
     borderRadius: borderRadius.lg,
     padding: spacing.xl,
     alignItems: 'center',
     justifyContent: 'center',
-    minHeight: 240,
+    minHeight: 200,
     borderWidth: 2,
   },
   cameraPlaceholderEmoji: {
@@ -572,5 +1004,144 @@ const styles = StyleSheet.create({
     color: colors.white,
     fontSize: fontSize.lg,
     fontWeight: fontWeight.bold,
+  },
+  // Guidance section
+  guidanceSection: {
+    backgroundColor: '#eff6ff',
+    borderRadius: borderRadius.lg,
+    padding: spacing.md,
+    borderWidth: 1,
+    borderColor: '#bfdbfe',
+    marginBottom: spacing.md,
+  },
+  guidanceSectionTitle: {
+    fontSize: fontSize.md,
+    fontWeight: fontWeight.bold,
+    color: '#1e40af',
+    marginBottom: spacing.sm,
+  },
+  guidanceInstruction: {
+    fontSize: fontSize.sm,
+    color: '#1e3a5f',
+    lineHeight: 20,
+    marginBottom: spacing.sm,
+  },
+  guidanceItem: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    marginBottom: 4,
+    paddingLeft: spacing.xs,
+  },
+  guidanceBullet: {
+    fontSize: fontSize.sm,
+    color: '#2563eb',
+    marginRight: spacing.sm,
+    lineHeight: 20,
+  },
+  guidanceText: {
+    fontSize: fontSize.sm,
+    color: '#1e3a5f',
+    lineHeight: 20,
+    flex: 1,
+  },
+  // AI chips banner
+  aiChipsBanner: {
+    backgroundColor: '#fffbeb',
+    borderRadius: borderRadius.md,
+    padding: spacing.sm,
+    borderWidth: 1,
+    borderColor: '#fde68a',
+    marginBottom: spacing.md,
+  },
+  aiChipsBannerText: {
+    fontSize: fontSize.sm,
+    color: '#92400e',
+    fontWeight: fontWeight.medium,
+    textAlign: 'center',
+  },
+  // Batch mode
+  batchProgressBar: {
+    backgroundColor: '#eff6ff',
+    borderRadius: borderRadius.md,
+    padding: spacing.sm,
+    marginBottom: spacing.md,
+    borderWidth: 1,
+    borderColor: '#bfdbfe',
+  },
+  batchProgressText: {
+    fontSize: fontSize.sm,
+    fontWeight: fontWeight.semibold,
+    color: colors.primary,
+    textAlign: 'center',
+    marginBottom: spacing.xs,
+  },
+  batchProgressTrack: {
+    height: 6,
+    backgroundColor: '#dbeafe',
+    borderRadius: 3,
+    overflow: 'hidden',
+  },
+  batchProgressFill: {
+    height: 6,
+    backgroundColor: colors.primary,
+    borderRadius: 3,
+  },
+  skipButton: {
+    backgroundColor: colors.surface,
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: borderRadius.md,
+    paddingVertical: 14,
+    alignItems: 'center',
+    marginTop: spacing.sm,
+  },
+  skipButtonText: {
+    fontSize: fontSize.base,
+    fontWeight: fontWeight.semibold,
+    color: colors.textMuted,
+  },
+  // AI status bar
+  aiStatusBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
+    borderRadius: borderRadius.md,
+    marginBottom: spacing.md,
+    gap: spacing.sm,
+  },
+  aiStatusReady: {
+    backgroundColor: '#eff6ff',
+  },
+  aiStatusNormal: {
+    backgroundColor: '#dcfce7',
+  },
+  aiStatusFlagged: {
+    backgroundColor: '#fef2f2',
+  },
+  aiStatusNA: {
+    backgroundColor: '#f1f5f9',
+  },
+  aiStatusDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+  },
+  aiDotReady: {
+    backgroundColor: '#2563eb',
+  },
+  aiDotNormal: {
+    backgroundColor: '#16a34a',
+  },
+  aiDotFlagged: {
+    backgroundColor: '#dc2626',
+  },
+  aiDotNA: {
+    backgroundColor: '#94a3b8',
+  },
+  aiStatusText: {
+    fontSize: fontSize.sm,
+    fontWeight: fontWeight.semibold,
+    color: colors.text,
   },
 })

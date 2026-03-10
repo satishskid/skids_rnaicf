@@ -5,7 +5,9 @@
     "version": "3.0.0",
     "sdkVersion": "54.0.0",
     "scheme": "skids-screen",
-    "platforms": ["android"],
+    "platforms": [
+      "android"
+    ],
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "splash": {
@@ -20,19 +22,40 @@
         "backgroundColor": "#2563eb"
       },
       "permissions": [
-        "CAMERA",
-        "RECORD_AUDIO",
-        "BLUETOOTH",
-        "BLUETOOTH_ADMIN",
-        "BLUETOOTH_CONNECT",
-        "BLUETOOTH_SCAN",
-        "NFC",
-        "INTERNET",
-        "ACCESS_NETWORK_STATE"
+        "android.permission.CAMERA",
+        "android.permission.RECORD_AUDIO",
+        "android.permission.BLUETOOTH",
+        "android.permission.BLUETOOTH_ADMIN",
+        "android.permission.BLUETOOTH_CONNECT",
+        "android.permission.BLUETOOTH_SCAN",
+        "android.permission.NFC",
+        "android.permission.INTERNET",
+        "android.permission.ACCESS_NETWORK_STATE",
+        "android.permission.MODIFY_AUDIO_SETTINGS"
       ]
     },
     "extra": {
-      "apiBaseUrl": "https://skids-api.satish-9f4.workers.dev"
-    }
+      "apiBaseUrl": "https://skids-api.satish-9f4.workers.dev",
+      "eas": {
+        "projectId": "6c4484ec-26c1-42d1-87a8-caca29cac535"
+      }
+    },
+    "plugins": [
+      [
+        "expo-image-picker",
+        {
+          "cameraPermission": "SKIDS Screen needs camera access to capture screening photos and videos.",
+          "photosPermission": "SKIDS Screen needs photo library access to attach images to observations."
+        }
+      ],
+      [
+        "expo-av",
+        {
+          "microphonePermission": "SKIDS Screen needs microphone access to record respiratory and cardiac audio."
+        }
+      ],
+      "expo-secure-store"
+    ],
+    "owner": "satishskids"
   }
 }

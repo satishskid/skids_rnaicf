@@ -85,7 +85,7 @@ healthRoutes.get('/detailed', async (c) => {
     const start = Date.now()
     const aiStats = await db.execute(`
       SELECT COUNT(*) as totalRequests,
-        SUM(CASE WHEN createdAt > datetime('now', '-1 day') THEN 1 ELSE 0 END) as last24h
+        SUM(CASE WHEN created_at > datetime('now', '-1 day') THEN 1 ELSE 0 END) as last24h
       FROM ai_usage
     `)
     const aiRow = aiStats.rows?.[0] as any

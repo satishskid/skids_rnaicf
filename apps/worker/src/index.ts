@@ -21,6 +21,8 @@ import { exportRoutes } from './routes/export'
 import { campaignProgressRoutes } from './routes/campaign-progress'
 import { screeningEventsRoutes } from './routes/screening-events'
 import { reportTokenRoutes } from './routes/report-tokens'
+import { pinAuthRoutes } from './routes/pin-auth'
+import { educationRoutes } from './routes/education'
 import { createTursoClient } from '@skids/db'
 import { createAuth } from './auth'
 import { authMiddleware, requireRole } from './middleware/auth'
@@ -94,6 +96,9 @@ app.all('/api/auth/*', async (c) => {
   const auth = createAuth(c.env)
   return auth.handler(c.req.raw)
 })
+
+// ── PIN auth (public, no authMiddleware) ────
+app.route('/api/pin-auth', pinAuthRoutes)
 
 // ── Auth-protected routes ───────────────────
 // Health check is public
@@ -172,6 +177,9 @@ app.route('/api/screening-events', screeningEventsRoutes)
 // Report tokens — POST requires auth, GET/:token is public (parent access)
 app.post('/api/report-tokens', authMiddleware)
 app.route('/api/report-tokens', reportTokenRoutes)
+
+// Education — public endpoint (used by parent report)
+app.route('/api/education', educationRoutes)
 
 // Root
 app.get('/', (c) => {

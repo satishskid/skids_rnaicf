@@ -5,7 +5,7 @@ interface StatsCardProps {
   value: string | number
   subtitle?: string
   icon: LucideIcon
-  color?: 'blue' | 'green' | 'purple' | 'orange' | 'red'
+  color?: 'blue' | 'green' | 'purple' | 'orange' | 'red' | 'yellow'
 }
 
 const colorMap = {
@@ -33,6 +33,11 @@ const colorMap = {
     bg: 'bg-red-50',
     icon: 'bg-red-100 text-red-600',
     value: 'text-red-700',
+  },
+  yellow: {
+    bg: 'bg-yellow-50',
+    icon: 'bg-yellow-100 text-yellow-600',
+    value: 'text-yellow-700',
   },
 }
 

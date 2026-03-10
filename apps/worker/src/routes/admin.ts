@@ -1,7 +1,7 @@
 // Admin routes — user management (admin-only)
 import { Hono } from 'hono'
 import type { Bindings, Variables } from '../index'
-import { createAuth } from '../auth'
+import { createAuth, hashPin } from '../auth'
 
 export const adminRoutes = new Hono<{ Bindings: Bindings; Variables: Variables }>()
 
@@ -105,7 +105,7 @@ adminRoutes.get('/users', async (c) => {
   const db = c.get('db')
 
   const result = await db.execute(
-    'SELECT id, name, email, role, "orgCode", "createdAt" FROM user ORDER BY "createdAt" DESC'
+    'SELECT id, name, email, role, "orgCode", "createdAt", "pinHash" FROM user ORDER BY "createdAt" DESC'
   )
 
   const users = result.rows.map(row => ({
@@ -115,7 +115,71 @@ adminRoutes.get('/users', async (c) => {
     role: row.role || 'nurse',
     orgCode: row.orgCode,
     createdAt: row.createdAt,
+    hasPin: !!row.pinHash,
   }))
 
   return c.json({ users })
+})
+
+// Set PIN for a user (admin only)
+adminRoutes.post('/set-pin', async (c) => {
+  const db = c.get('db')
+  const body = await c.req.json()
+  const { userId, pin } = body
+
+  if (!userId || !pin) {
+    return c.json({ error: 'userId and pin are required' }, 400)
+  }
+
+  if (!/^\d{4,6}$/.test(pin)) {
+    return c.json({ error: 'PIN must be 4-6 digits' }, 400)
+  }
+
+  // Get user's orgCode
+  const userResult = await db.execute({
+    sql: 'SELECT id, "orgCode" FROM user WHERE id = ?',
+    args: [userId],
+  })
+
+  if (userResult.rows.length === 0) {
+    return c.json({ error: 'User not found' }, 404)
+  }
+
+  const orgCode = (userResult.rows[0].orgCode as string) || 'zpedi'
+  const pinHash = await hashPin(pin, orgCode)
+
+  // Check uniqueness
+  const existing = await db.execute({
+    sql: 'SELECT id FROM user WHERE "pinHash" = ? AND id != ?',
+    args: [pinHash, userId],
+  })
+
+  if (existing.rows.length > 0) {
+    return c.json({ error: 'This PIN is already in use by another user' }, 409)
+  }
+
+  await db.execute({
+    sql: 'UPDATE user SET "pinHash" = ? WHERE id = ?',
+    args: [pinHash, userId],
+  })
+
+  return c.json({ message: 'PIN set successfully' })
+})
+
+// Reset (clear) PIN for a user (admin only)
+adminRoutes.post('/reset-pin', async (c) => {
+  const db = c.get('db')
+  const body = await c.req.json()
+  const { userId } = body
+
+  if (!userId) {
+    return c.json({ error: 'userId is required' }, 400)
+  }
+
+  await db.execute({
+    sql: 'UPDATE user SET "pinHash" = NULL WHERE id = ?',
+    args: [userId],
+  })
+
+  return c.json({ message: 'PIN cleared' })
 })

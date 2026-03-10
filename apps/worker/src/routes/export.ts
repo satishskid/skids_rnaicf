@@ -20,11 +20,11 @@ const app = new Hono<{ Bindings: Bindings; Variables: Variables }>()
 async function fetchCampaignData(db: any, campaignCode: string) {
   const [childRows, obsRows] = await Promise.all([
     db.execute({
-      sql: 'SELECT * FROM children WHERE campaignCode = ?',
+      sql: 'SELECT * FROM children WHERE campaign_code = ?',
       args: [campaignCode],
     }),
     db.execute({
-      sql: 'SELECT * FROM observations WHERE campaignCode = ?',
+      sql: 'SELECT * FROM observations WHERE campaign_code = ?',
       args: [campaignCode],
     }),
   ])
@@ -35,18 +35,18 @@ async function fetchCampaignData(db: any, campaignCode: string) {
     dob: r.dob,
     gender: r.gender,
     class: r.class,
-    campaignCode: r.campaignCode,
+    campaignCode: r.campaign_code,
   }))
 
   const observations: Observation[] = (obsRows.rows ?? []).map((r: any) => ({
     id: r.id,
-    childId: r.childId,
-    moduleType: r.moduleType,
-    campaignCode: r.campaignCode,
-    annotationData: r.annotationData ? JSON.parse(r.annotationData) : undefined,
-    aiAnnotations: r.aiAnnotations ? JSON.parse(r.aiAnnotations) : undefined,
-    mediaUrl: r.mediaUrl,
-    createdAt: r.createdAt,
+    childId: r.child_id,
+    moduleType: r.module_type,
+    campaignCode: r.campaign_code,
+    annotationData: r.annotation_data ? JSON.parse(r.annotation_data) : undefined,
+    aiAnnotations: r.ai_annotations ? JSON.parse(r.ai_annotations) : undefined,
+    mediaUrl: r.media_url,
+    createdAt: r.created_at,
   }))
 
   return { children, observations }

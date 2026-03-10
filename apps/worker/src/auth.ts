@@ -147,6 +147,7 @@ export function createAuth(env: Bindings) {
       'http://localhost:5199',
       'http://localhost:3000',
       'http://localhost:8081',
+      'http://localhost:8082',
       'http://localhost:8787',
       'http://localhost:8788',
       'https://skids-ai.vercel.app',
@@ -157,3 +158,15 @@ export function createAuth(env: Bindings) {
 }
 
 export type Auth = ReturnType<typeof createAuth>
+
+// ── PIN hashing (deterministic, for direct DB lookup) ────────
+// SHA-256(pin + ':' + orgCode) → hex string
+// Deterministic: same pin+orgCode always produces same hash (enables index lookup)
+
+export async function hashPin(pin: string, orgCode: string): Promise<string> {
+  const data = new TextEncoder().encode(pin + ':' + orgCode)
+  const hash = await crypto.subtle.digest('SHA-256', data)
+  return Array.from(new Uint8Array(hash))
+    .map(b => b.toString(16).padStart(2, '0'))
+    .join('')
+}

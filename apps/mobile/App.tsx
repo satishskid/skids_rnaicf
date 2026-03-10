@@ -2,7 +2,7 @@
 // Full navigation with role-based tab switching
 
 import React from 'react'
-import { Text } from 'react-native'
+import { Text, View, ActivityIndicator } from 'react-native'
 import { StatusBar } from 'expo-status-bar'
 import { NavigationContainer } from '@react-navigation/native'
 import { createNativeStackNavigator } from '@react-navigation/native-stack'
@@ -14,7 +14,7 @@ import { AuthProvider, useAuth } from './src/lib/AuthContext'
 
 // Screens
 import { LoginScreen } from './src/screens/LoginScreen'
-import { SignupScreen } from './src/screens/SignupScreen'
+// SignupScreen removed — admin creates accounts, nurses use PIN
 import { CampaignsScreen } from './src/screens/CampaignsScreen'
 import { CampaignDetailScreen } from './src/screens/CampaignDetailScreen'
 import { RegisterChildScreen } from './src/screens/RegisterChildScreen'
@@ -23,6 +23,8 @@ import { ModuleScreen } from './src/screens/ModuleScreen'
 import { ProfileScreen } from './src/screens/ProfileScreen'
 import { ObservationListScreen } from './src/screens/ObservationListScreen'
 import { DoctorReviewScreen } from './src/screens/DoctorReviewScreen'
+import { BatchSummaryScreen } from './src/screens/BatchSummaryScreen'
+import { QuickVitalsScreen } from './src/screens/QuickVitalsScreen'
 
 // Types
 import type { Campaign, Observation } from './src/lib/types'
@@ -32,7 +34,6 @@ import type { ModuleType } from './src/lib/types'
 
 type AuthStackParamList = {
   Login: undefined
-  Signup: undefined
 }
 
 type HomeStackParamList = {
@@ -40,14 +41,36 @@ type HomeStackParamList = {
   CampaignDetail: { campaign: Campaign }
   RegisterChild: { campaignCode: string }
   Screening: { campaignCode: string }
-  Module: { moduleType: ModuleType; campaignCode?: string; childId?: string }
+  Module: {
+    moduleType: ModuleType; campaignCode?: string; childId?: string
+    childDob?: string; childGender?: 'male' | 'female'; childName?: string
+    batchMode?: boolean; batchIndex?: number; batchTotal?: number; batchQueue?: string
+  }
+  QuickVitals: {
+    childId: string; childDob: string; childGender: 'male' | 'female'
+    childName: string; campaignCode: string
+  }
+  BatchSummary: {
+    campaignCode: string; childId: string; childName: string; completedModules: string
+  }
   ObservationList: { campaignCode: string; campaignName: string }
   DoctorReview: { observation: Observation }
 }
 
 type ScreeningStackParamList = {
   ScreeningTab: undefined
-  Module: { moduleType: ModuleType; campaignCode?: string }
+  Module: {
+    moduleType: ModuleType; campaignCode?: string; childId?: string
+    childDob?: string; childGender?: 'male' | 'female'; childName?: string
+    batchMode?: boolean; batchIndex?: number; batchTotal?: number; batchQueue?: string
+  }
+  QuickVitals: {
+    childId: string; childDob: string; childGender: 'male' | 'female'
+    childName: string; campaignCode: string
+  }
+  BatchSummary: {
+    campaignCode: string; childId: string; childName: string; completedModules: string
+  }
 }
 
 // ── Navigators ─────────────────────────────────
@@ -85,7 +108,6 @@ function AuthStack() {
   return (
     <AuthStackNav.Navigator screenOptions={{ headerShown: false }}>
       <AuthStackNav.Screen name="Login" component={LoginScreen} />
-      <AuthStackNav.Screen name="Signup" component={SignupScreen} />
     </AuthStackNav.Navigator>
   )
 }
@@ -125,9 +147,19 @@ function HomeStack() {
         })}
       />
       <HomeStackNav.Screen
+        name="QuickVitals"
+        component={QuickVitalsScreen as any}
+        options={{ title: 'Quick Vitals' }}
+      />
+      <HomeStackNav.Screen
         name="ObservationList"
         component={ObservationListScreen as any}
         options={{ title: 'Observations' }}
+      />
+      <HomeStackNav.Screen
+        name="BatchSummary"
+        component={BatchSummaryScreen as any}
+        options={{ title: 'Screening Complete' }}
       />
       <HomeStackNav.Screen
         name="DoctorReview"
@@ -152,6 +184,16 @@ function ScreeningStack() {
         name="Module"
         component={ModuleScreen as any}
         options={{ title: 'Module' }}
+      />
+      <ScreeningStackNav.Screen
+        name="QuickVitals"
+        component={QuickVitalsScreen as any}
+        options={{ title: 'Quick Vitals' }}
+      />
+      <ScreeningStackNav.Screen
+        name="BatchSummary"
+        component={BatchSummaryScreen as any}
+        options={{ title: 'Screening Complete' }}
       />
     </ScreeningStackNav.Navigator>
   )
@@ -222,7 +264,18 @@ function MainTabs() {
 // ── Root Navigation ────────────────────────────
 
 function RootNav() {
-  const { isAuthenticated } = useAuth()
+  const { isAuthenticated, isLoading } = useAuth()
+
+  if (isLoading) {
+    return (
+      <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#2563eb' }}>
+        <Text style={{ fontSize: 28, fontWeight: '900', color: '#fff' }}>SKIDS</Text>
+        <Text style={{ fontSize: 16, color: 'rgba(255,255,255,0.7)', marginTop: 4 }}>screen</Text>
+        <ActivityIndicator color="#fff" style={{ marginTop: 20 }} />
+      </View>
+    )
+  }
+
   return (
     <NavigationContainer>
       {isAuthenticated ? <MainTabs /> : <AuthStack />}

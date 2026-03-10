@@ -19,6 +19,7 @@ import {
 import { StatusBadge } from '../components/StatusBadge'
 import { LoadingSpinner } from '../components/LoadingSpinner'
 import { EmptyState } from '../components/EmptyState'
+import { CampaignProgress } from '../components/CampaignProgress'
 import { useApi } from '../lib/hooks'
 import { apiCall } from '../lib/api'
 import { getModuleName, computeNurseQualityStats } from '@skids/shared'
@@ -104,9 +105,10 @@ interface ReviewsResponse {
   reviews: ReviewData[]
 }
 
-type TabKey = 'children' | 'observations' | 'reviews' | 'analytics'
+type TabKey = 'children' | 'observations' | 'reviews' | 'analytics' | 'progress'
 
 const tabs: { key: TabKey; label: string; icon: typeof Users }[] = [
+  { key: 'progress', label: 'Progress', icon: BarChart3 },
   { key: 'children', label: 'Children', icon: Users },
   { key: 'observations', label: 'Observations', icon: ClipboardList },
   { key: 'reviews', label: 'Reviews', icon: FileCheck2 },
@@ -116,7 +118,7 @@ const tabs: { key: TabKey; label: string; icon: typeof Users }[] = [
 export function CampaignDetailPage() {
   const { code } = useParams<{ code: string }>()
   const navigate = useNavigate()
-  const [activeTab, setActiveTab] = useState<TabKey>('children')
+  const [activeTab, setActiveTab] = useState<TabKey>('progress')
 
   const { data: campaign, isLoading: campaignLoading, error: campaignError } =
     useApi<CampaignResponse>(code ? `/api/campaigns/${code}` : null)
@@ -236,6 +238,7 @@ export function CampaignDetailPage() {
         {/* Action buttons */}
         <div className="mt-4 flex flex-wrap gap-2">
           <CsvImportButton campaignCode={code!} onImported={() => window.location.reload()} />
+          <WelchAllynImportButton campaignCode={code!} children={children} />
           <a
             href={`https://skids-api.satish-9f4.workers.dev/api/campaigns/${code}/export`}
             target="_blank"
@@ -276,7 +279,9 @@ export function CampaignDetailPage() {
                     ? observations.length
                     : tab.key === 'reviews'
                       ? reviews.length
-                      : '--'}
+                      : tab.key === 'progress'
+                        ? `${children.length > 0 ? Math.round((observations.length / Math.max(children.length, 1)) * 100) : 0}%`
+                        : '--'}
               </span>
             </button>
           ))}
@@ -285,6 +290,9 @@ export function CampaignDetailPage() {
 
       {/* Tab content */}
       <div>
+        {activeTab === 'progress' && (
+          <CampaignProgress campaignCode={code!} />
+        )}
         {activeTab === 'children' && (
           <ChildrenTab children={children} isLoading={childrenLoading} campaignCode={code!} />
         )}
@@ -802,6 +810,104 @@ function CsvImportButton({ campaignCode, onImported }: { campaignCode: string; o
       {result && (
         <p className={`mt-1 text-xs ${result.errors?.length ? 'text-red-600' : 'text-green-600'}`}>
           {result.errors?.length ? result.errors[0] : `Added ${result.added}, skipped ${result.skipped} duplicates`}
+        </p>
+      )}
+    </div>
+  )
+}
+
+// ── Welch Allyn Import Button ──
+
+function WelchAllynImportButton({ campaignCode, children: campaignChildren }: { campaignCode: string; children: ChildData[] }) {
+  const fileRef = useRef<HTMLInputElement>(null)
+  const [importing, setImporting] = useState(false)
+  const [result, setResult] = useState<{ stored?: number; error?: string } | null>(null)
+
+  const handleFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+    setImporting(true)
+    setResult(null)
+
+    try {
+      const text = await file.text()
+      const lines = text.split('\n').filter(l => l.trim())
+      if (lines.length < 2) {
+        setResult({ error: 'CSV must have a header row and at least one data row' })
+        setImporting(false)
+        return
+      }
+
+      const headers = lines[0].split(',').map(h => h.trim().toLowerCase())
+      // Expected Welch Allyn Spot CSV columns
+      const recordIdIdx = headers.findIndex(h => h.includes('record') || h.includes('id'))
+      const nameIdx = headers.findIndex(h => h.includes('name') || h.includes('patient'))
+      const timestampIdx = headers.findIndex(h => h.includes('date') || h.includes('time'))
+      const resultIdx = headers.findIndex(h => h.includes('result') || h.includes('pass') || h.includes('screening'))
+      const odIdx = headers.findIndex(h => h.includes('od') || h.includes('right'))
+      const osIdx = headers.findIndex(h => h.includes('os') || h.includes('left'))
+
+      const observations = lines.slice(1).map(line => {
+        const cols = line.split(',').map(c => c.trim())
+        const patientName = nameIdx >= 0 ? cols[nameIdx] : ''
+        const resultText = resultIdx >= 0 ? cols[resultIdx] : ''
+        const passed = resultText.toLowerCase().includes('pass') || resultText.toLowerCase().includes('normal')
+
+        // Try to match to a campaign child by name
+        const matchedChild = campaignChildren.find(c =>
+          c.name.toLowerCase() === patientName.toLowerCase() ||
+          c.name.toLowerCase().includes(patientName.toLowerCase()) ||
+          patientName.toLowerCase().includes(c.name.toLowerCase())
+        )
+
+        const riskCategory = passed ? 'no_risk' : resultText.toLowerCase().includes('refer') ? 'high' : 'medium'
+
+        return {
+          childId: matchedChild?.id || `unmatched_${patientName.replace(/\s+/g, '_')}`,
+          childName: patientName,
+          screeningData: {
+            recordId: recordIdIdx >= 0 ? cols[recordIdIdx] : `spot_${Date.now()}`,
+            timestamp: timestampIdx >= 0 ? cols[timestampIdx] : new Date().toISOString(),
+            passed,
+            resultText,
+            od: odIdx >= 0 ? { raw: cols[odIdx] } : undefined,
+            os: osIdx >= 0 ? { raw: cols[osIdx] } : undefined,
+          },
+          mapping: {
+            suggestedChips: passed ? ['normal_vision'] : ['vision_concern'],
+            summaryText: `Welch Allyn Spot: ${resultText || (passed ? 'Pass' : 'Refer')}`,
+            riskCategory,
+          },
+        }
+      }).filter(o => o.childName)
+
+      const res = await apiCall<{ stored: number }>(
+        `/api/campaigns/${campaignCode}/welchallyn`,
+        { method: 'POST', body: JSON.stringify({ observations }) }
+      )
+      setResult({ stored: res.stored })
+    } catch (err) {
+      setResult({ error: err instanceof Error ? err.message : 'Import failed' })
+    } finally {
+      setImporting(false)
+      if (fileRef.current) fileRef.current.value = ''
+    }
+  }
+
+  return (
+    <div className="inline-flex flex-col">
+      <input ref={fileRef} type="file" accept=".csv" onChange={handleFile} className="hidden" />
+      <button
+        onClick={() => fileRef.current?.click()}
+        disabled={importing}
+        className="flex items-center gap-2 rounded-lg border border-teal-300 bg-teal-50 px-3 py-2 text-xs font-medium text-teal-700 hover:bg-teal-100 disabled:opacity-50"
+      >
+        {importing ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Upload className="h-3.5 w-3.5" />}
+        {importing ? 'Importing...' : 'Welch Allyn Import'}
+      </button>
+      {result && (
+        <p className={`mt-1 text-xs ${result.error ? 'text-red-600' : 'text-green-600'}`}>
+          {result.error || `Imported ${result.stored} vision screening results`}
         </p>
       )}
     </div>
