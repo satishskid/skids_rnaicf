@@ -26,6 +26,7 @@ import { AIResultCard } from '../components/AIResultCard'
 import { getChipsForModule, getModuleGuidance } from '../lib/annotations'
 import { useSyncEngine } from '../lib/sync-engine'
 import { calculateAgeInMonths, formatAge } from '../lib/types'
+import { getNormalRange } from '../lib/normal-ranges'
 import type { ModuleType } from '../lib/types'
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack'
 import type { RouteProp } from '@react-navigation/native'
@@ -384,6 +385,14 @@ export function ModuleScreen({ navigation, route }: Props) {
           {moduleConfig.type === 'muac' && (
             <Text style={styles.unitHint}>Value in centimeters (cm)</Text>
           )}
+          {ageMonths !== undefined && childGender && (() => {
+            const rangeText = getNormalRange(moduleConfig.type, ageMonths, childGender)
+            return rangeText ? (
+              <View style={styles.normalRangeBar}>
+                <Text style={styles.normalRangeText}>{rangeText}</Text>
+              </View>
+            ) : null
+          })()}
         </View>
       )
     }
@@ -869,6 +878,19 @@ const styles = StyleSheet.create({
     color: colors.textMuted,
     textAlign: 'center',
     marginTop: spacing.sm,
+  },
+  normalRangeBar: {
+    backgroundColor: '#eff6ff',
+    paddingHorizontal: spacing.sm,
+    paddingVertical: 5,
+    borderRadius: borderRadius.sm,
+    marginTop: spacing.sm,
+  },
+  normalRangeText: {
+    fontSize: fontSize.xs,
+    color: '#1e40af',
+    fontWeight: fontWeight.medium,
+    textAlign: 'center',
   },
   // Form placeholder
   formPlaceholder: {

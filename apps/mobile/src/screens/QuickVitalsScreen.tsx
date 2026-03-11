@@ -23,6 +23,7 @@ import { useSyncEngine } from '../lib/sync-engine'
 import { runLocalAI } from '../lib/ai-engine'
 import type { AIResult } from '../lib/ai-engine'
 import { calculateAgeInMonths, formatAge } from '../lib/types'
+import { getNormalRange } from '../lib/normal-ranges'
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack'
 import type { RouteProp } from '@react-navigation/native'
 
@@ -295,6 +296,16 @@ export function QuickVitalsScreen({ navigation, route }: Props) {
           editable={!isSaving}
         />
 
+        {/* Normal range hint */}
+        {(() => {
+          const rangeText = getNormalRange(field.moduleType, ageMonths, childGender)
+          return rangeText ? (
+            <View style={styles.normalRangeBar}>
+              <Text style={styles.normalRangeText}>{rangeText}</Text>
+            </View>
+          ) : null
+        })()}
+
         {ai && (
           <View style={styles.aiDetail}>
             <Text style={[styles.aiDetailText, { color: style.text }]}>{ai.summary}</Text>
@@ -557,6 +568,19 @@ const styles = StyleSheet.create({
     fontWeight: fontWeight.semibold,
     color: colors.text,
     minHeight: 48,
+  },
+  normalRangeBar: {
+    backgroundColor: '#eff6ff',
+    paddingHorizontal: spacing.sm,
+    paddingVertical: 5,
+    borderRadius: borderRadius.sm,
+    marginTop: spacing.xs,
+  },
+  normalRangeText: {
+    fontSize: fontSize.xs,
+    color: '#1e40af',
+    fontWeight: fontWeight.medium,
+    textAlign: 'center',
   },
   aiDetail: {
     marginTop: spacing.sm,

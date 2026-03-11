@@ -51,6 +51,8 @@ async function seedUsers() {
           name: user.name,
           email: user.email,
           password: user.password,
+          role: user.role,
+          orgCode: 'zpedi',
         }),
       })
 

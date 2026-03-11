@@ -71,16 +71,28 @@ const SKIN_CHIPS: ChipDef[] = [
 ]
 
 const EAR_CHIPS: ChipDef[] = [
-  { id: 'e1', label: 'TM normal', category: 'tympanic' },
-  { id: 'e2', label: 'TM erythematous', category: 'tympanic', hasSeverity: true, icdCode: 'H66.9' },
-  { id: 'e3', label: 'TM bulging', category: 'tympanic', hasSeverity: true, icdCode: 'H66.0' },
-  { id: 'e4', label: 'TM retracted', category: 'tympanic', hasSeverity: true, icdCode: 'H73.0' },
-  { id: 'e5', label: 'Effusion/fluid', category: 'middle_ear', hasSeverity: true, icdCode: 'H65.9' },
-  { id: 'e6', label: 'Perforation', category: 'tympanic', hasSeverity: true, icdCode: 'H72' },
-  { id: 'e7', label: 'Wax impaction', category: 'canal', hasSeverity: true, icdCode: 'H61.2' },
-  { id: 'e8', label: 'Otitis externa', category: 'canal', hasSeverity: true, icdCode: 'H60' },
-  { id: 'e9', label: 'Foreign body', category: 'canal', hasSeverity: true, icdCode: 'T16' },
-  { id: 'e10', label: 'Discharge', category: 'canal', hasSeverity: true, icdCode: 'H92.1' },
+  // Left ear
+  { id: 'e1_l', label: 'Left TM normal', category: 'left_ear' },
+  { id: 'e2_l', label: 'Left TM erythematous', category: 'left_ear', hasSeverity: true, icdCode: 'H66.9' },
+  { id: 'e3_l', label: 'Left TM bulging', category: 'left_ear', hasSeverity: true, icdCode: 'H66.0' },
+  { id: 'e4_l', label: 'Left TM retracted', category: 'left_ear', hasSeverity: true, icdCode: 'H73.0' },
+  { id: 'e5_l', label: 'Left effusion/fluid', category: 'left_ear', hasSeverity: true, icdCode: 'H65.9' },
+  { id: 'e6_l', label: 'Left perforation', category: 'left_ear', hasSeverity: true, icdCode: 'H72' },
+  { id: 'e7_l', label: 'Left wax impaction', category: 'left_ear', hasSeverity: true, icdCode: 'H61.2' },
+  { id: 'e8_l', label: 'Left otitis externa', category: 'left_ear', hasSeverity: true, icdCode: 'H60' },
+  { id: 'e9_l', label: 'Left foreign body', category: 'left_ear', hasSeverity: true, icdCode: 'T16' },
+  { id: 'e10_l', label: 'Left discharge', category: 'left_ear', hasSeverity: true, icdCode: 'H92.1' },
+  // Right ear
+  { id: 'e1_r', label: 'Right TM normal', category: 'right_ear' },
+  { id: 'e2_r', label: 'Right TM erythematous', category: 'right_ear', hasSeverity: true, icdCode: 'H66.9' },
+  { id: 'e3_r', label: 'Right TM bulging', category: 'right_ear', hasSeverity: true, icdCode: 'H66.0' },
+  { id: 'e4_r', label: 'Right TM retracted', category: 'right_ear', hasSeverity: true, icdCode: 'H73.0' },
+  { id: 'e5_r', label: 'Right effusion/fluid', category: 'right_ear', hasSeverity: true, icdCode: 'H65.9' },
+  { id: 'e6_r', label: 'Right perforation', category: 'right_ear', hasSeverity: true, icdCode: 'H72' },
+  { id: 'e7_r', label: 'Right wax impaction', category: 'right_ear', hasSeverity: true, icdCode: 'H61.2' },
+  { id: 'e8_r', label: 'Right otitis externa', category: 'right_ear', hasSeverity: true, icdCode: 'H60' },
+  { id: 'e9_r', label: 'Right foreign body', category: 'right_ear', hasSeverity: true, icdCode: 'T16' },
+  { id: 'e10_r', label: 'Right discharge', category: 'right_ear', hasSeverity: true, icdCode: 'H92.1' },
 ]
 
 const HEARING_CHIPS: ChipDef[] = [
@@ -245,6 +257,17 @@ const NEURODEVELOPMENT_CHIPS: ChipDef[] = [
   { id: 'n7', label: 'Cognitive delay', category: 'development', hasSeverity: true, icdCode: 'F79' },
   { id: 'n8', label: 'Adaptive behavior delay', category: 'development', hasSeverity: true, icdCode: 'F70' },
   { id: 'n9', label: 'ASD screening positive', category: 'screening', hasSeverity: true, icdCode: 'F84.0' },
+  { id: 'n10', label: 'Intellectual disability', category: 'development', hasSeverity: true, icdCode: 'F79' },
+  { id: 'n11', label: 'Anxiety disorder', category: 'behavioral', hasSeverity: true, icdCode: 'F41.9' },
+  { id: 'n12', label: 'Depression', category: 'behavioral', hasSeverity: true, icdCode: 'F32.9' },
+  { id: 'n13', label: 'Oppositional defiant', category: 'behavioral', hasSeverity: true, icdCode: 'F91.3' },
+  { id: 'n14', label: 'Conduct disorder', category: 'behavioral', hasSeverity: true, icdCode: 'F91.9' },
+  { id: 'n15', label: 'Adjustment disorder', category: 'behavioral', hasSeverity: true, icdCode: 'F43.2' },
+  { id: 'n16', label: 'Emotional disturbance', category: 'behavioral', hasSeverity: true, icdCode: 'F93.9' },
+  { id: 'n17', label: 'Dyslexia', category: 'learning', hasSeverity: true, icdCode: 'F81.0' },
+  { id: 'n18', label: 'Dyscalculia', category: 'learning', hasSeverity: true, icdCode: 'F81.2' },
+  { id: 'n19', label: 'Dysgraphia', category: 'learning', hasSeverity: true, icdCode: 'F81.8' },
+  { id: 'n20', label: 'Digital dependency', category: 'behavioral', hasSeverity: true, icdCode: 'F63.0' },
   { id: 'n21', label: 'Normal development', category: 'general' },
 ]
 
