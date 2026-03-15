@@ -672,7 +672,7 @@ export function SettingsScreen() {
           <View style={styles.infoCard}>
             <View style={styles.infoRow}>
               <Text style={styles.infoLabel}>App</Text>
-              <Text style={styles.infoValue}>SKIDS Screen v3.1.0</Text>
+              <Text style={styles.infoValue}>SKIDS Screen v3.3.0</Text>
             </View>
             <View style={styles.divider} />
             <View style={styles.infoRow}>

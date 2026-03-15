@@ -23,7 +23,7 @@ import { useAuth } from '../lib/AuthContext'
 const ORG_CODE_KEY = '@skids/last-org-code'
 
 const PIN_KEYS = ['1', '2', '3', '4', '5', '6', '7', '8', '9', 'CLR', '0', '\u232B']
-const MAX_PIN = 6
+const MAX_PIN = 4
 
 export function LoginScreen() {
   const { login, loginWithPin, isLoading } = useAuth()
@@ -258,7 +258,7 @@ export function LoginScreen() {
         )}
 
         {/* Version */}
-        <Text style={styles.versionText}>SKIDS Screen v3.1.0</Text>
+        <Text style={styles.versionText}>SKIDS Screen v3.3.0</Text>
       </ScrollView>
     </KeyboardAvoidingView>
   )
