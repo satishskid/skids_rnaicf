@@ -217,9 +217,7 @@ export function ReadinessCheck({ onReady, showContinueButton }: ReadinessCheckPr
 
       // AyuSync — check if AyuShare app is installed
       try {
-        const ayuShareScheme = Platform.OS === 'android'
-          ? 'com.ayusync.ayushare'
-          : 'ayushare://'
+        const ayuShareScheme = 'app://www.ayudevicestech.com/launchApp'
         const canOpen = await Linking.canOpenURL(ayuShareScheme)
         if (canOpen) {
           updates.set('ayusync', {

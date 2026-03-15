@@ -85,7 +85,7 @@ export function CampaignDetailScreen({ navigation, route }: Props) {
     try {
       // Fetch children for this campaign
       const childData = await apiCall<{ children?: Child[]; data?: Child[] }>(
-        `/api/campaigns/${campaign.code}/children`,
+        `/api/children?campaign=${campaign.code}`,
         { token: token || undefined }
       ).catch(() => ({ children: [] as Child[] } as { children?: Child[]; data?: Child[] }))
 
@@ -93,15 +93,22 @@ export function CampaignDetailScreen({ navigation, route }: Props) {
         childData.children || childData.data || (Array.isArray(childData) ? childData : [])
       setChildren(childList as Child[])
 
-      // Fetch campaign stats
-      const statsData = await apiCall<{
-        observations?: number
-        reviews?: number
-        children?: number
+      // Fetch campaign stats from campaign-progress endpoint
+      const progressData = await apiCall<{
+        progress?: {
+          totalChildren?: number
+          screenedChildren?: number
+          reviewedChildren?: number
+        }
       }>(
-        `/api/campaigns/${campaign.code}/stats`,
+        `/api/campaign-progress/${campaign.code}`,
         { token: token || undefined }
-      ).catch(() => ({ children: 0, observations: 0, reviews: 0 }))
+      ).catch(() => ({ progress: { totalChildren: 0, screenedChildren: 0, reviewedChildren: 0 } }))
+      const statsData = {
+        children: progressData.progress?.totalChildren || 0,
+        observations: progressData.progress?.screenedChildren || 0,
+        reviews: progressData.progress?.reviewedChildren || 0,
+      }
 
       // Fetch observations for progress tracking
       const obsData = await apiCall<{ observations: Array<{ childId?: string; moduleType: string }> }>(

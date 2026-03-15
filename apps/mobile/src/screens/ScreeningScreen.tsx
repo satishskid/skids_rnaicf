@@ -170,7 +170,7 @@ export function ScreeningScreen({ navigation, route }: Props) {
     if (!campaignCode || !token) return
     setLoadingChildren(true)
     apiCall<{ children?: Child[]; data?: Child[] }>(
-      `/api/campaigns/${campaignCode}/children`,
+      `/api/children?campaign=${campaignCode}`,
       { token }
     )
       .then(data => {

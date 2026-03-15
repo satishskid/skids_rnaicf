@@ -1,25 +1,29 @@
 /**
  * Pure-Tone Audiometry — smartphone hearing screening.
  *
- * Tests thresholds at 500, 1000, 2000, 4000 Hz per ear.
+ * Tests thresholds at 250, 500, 1000, 2000, 4000, 8000 Hz per ear.
  * Method: Modified Hughson-Westlake (5 dB down, 10 dB up).
  * WHO: disabling hearing impairment = PTA > 30 dB in children.
  *
  * Enhanced with:
+ *   - Full octave range (250–8000 Hz) — ISO 8253-1 compliant
  *   - Speech-frequency PTA (500, 1000, 2000 Hz) — most clinically relevant for children
- *   - High-frequency PTA (2000, 4000 Hz) — early noise damage detection
+ *   - High-frequency PTA (2000, 4000, 8000 Hz) — early noise/ototoxicity detection
+ *   - Low-frequency threshold (250, 500 Hz) — conductive loss indicator
  *   - Hearing handicap estimation (AAO-HNS formula)
- *   - Frequency pattern detection (flat, sloping, rising, notch, normal)
+ *   - Frequency pattern detection (flat, sloping, rising, notch, low-frequency, normal)
  *   - Age-appropriate test protocol selection
  *   - Audiogram data generation for visualization
  *
  * References:
  * - WHO Global Estimates on Hearing Loss (2021)
  * - AAO-HNS Hearing Handicap Formula
+ * - ISO 8253-1:2010 Acoustics — Pure-tone air conduction audiometry
+ * - ASHA Guidelines for Audiologic Screening (2022)
  * - Sound Scouts (NAL Australia), GoCheck Kids (AAP-validated)
  */
 
-export const TEST_FREQUENCIES = [1000, 500, 2000, 4000] as const
+export const TEST_FREQUENCIES = [1000, 500, 250, 2000, 4000, 8000] as const
 export type TestFrequency = (typeof TEST_FREQUENCIES)[number]
 export type Ear = 'left' | 'right'
 
@@ -49,7 +53,7 @@ export interface AudiometryResult {
   testProtocol: TestProtocol
 }
 
-export type FrequencyPattern = 'normal' | 'flat' | 'sloping' | 'rising' | 'notch' | 'cookie-bite'
+export type FrequencyPattern = 'normal' | 'flat' | 'sloping' | 'rising' | 'notch' | 'cookie-bite' | 'low-frequency' | 'reverse-slope'
 export type TestProtocol = 'play' | 'standard' | 'self-report'
 
 /** Audiogram data point for visualization. */
@@ -108,47 +112,73 @@ export function calculateSpeechPTA(thresholds: AudiometryThreshold[], ear: Ear):
   return Math.round(relevant.reduce((sum, t) => sum + t.thresholddB, 0) / relevant.length)
 }
 
-/** High-frequency PTA (2000, 4000 Hz) — early noise-induced damage indicator. */
+/** High-frequency PTA (2000, 4000, 8000 Hz) — early noise/ototoxicity damage indicator. */
 export function calculateHighFreqPTA(thresholds: AudiometryThreshold[], ear: Ear): number {
-  const highFreqs = [2000, 4000]
+  const highFreqs = [2000, 4000, 8000]
   const relevant = thresholds.filter(t => t.ear === ear && highFreqs.includes(t.frequency))
+  if (relevant.length === 0) return 0
+  return Math.round(relevant.reduce((sum, t) => sum + t.thresholddB, 0) / relevant.length)
+}
+
+/** Low-frequency PTA (250, 500 Hz) — conductive hearing loss indicator. */
+export function calculateLowFreqPTA(thresholds: AudiometryThreshold[], ear: Ear): number {
+  const lowFreqs = [250, 500]
+  const relevant = thresholds.filter(t => t.ear === ear && lowFreqs.includes(t.frequency))
   if (relevant.length === 0) return 0
   return Math.round(relevant.reduce((sum, t) => sum + t.thresholddB, 0) / relevant.length)
 }
 
 // ── Frequency Pattern Detection ──
 
-/** Detect the audiometric configuration/pattern. */
+/** Detect the audiometric configuration/pattern using full octave range. */
 function detectFrequencyPattern(thresholds: AudiometryThreshold[], ear: Ear): FrequencyPattern {
   const get = (freq: number) => {
     const t = thresholds.find(th => th.ear === ear && th.frequency === freq)
     return t?.thresholddB ?? 0
   }
 
+  const t250 = get(250)
   const t500 = get(500)
   const t1000 = get(1000)
   const t2000 = get(2000)
   const t4000 = get(4000)
+  const t8000 = get(8000)
+
+  const allFreqs = [t250, t500, t1000, t2000, t4000, t8000]
+  const maxThreshold = Math.max(...allFreqs)
+  const minThreshold = Math.min(...allFreqs)
 
   // All within normal range
-  if (Math.max(t500, t1000, t2000, t4000) <= 20) return 'normal'
+  if (maxThreshold <= 20) return 'normal'
+
+  // Low-frequency loss: 250/500 elevated, high frequencies normal
+  // Common in conductive hearing loss (otitis media — frequent in children)
+  const lowAvg = (t250 + t500) / 2
+  const highAvg = (t4000 + t8000) / 2
+  if (lowAvg > highAvg + 20 && lowAvg > 25) return 'low-frequency'
+
+  // Reverse slope: low frequencies worse than high (rare, often genetic)
+  if (t250 - t4000 > 25 && t500 - t4000 > 20) return 'reverse-slope'
 
   // Cookie-bite: mid-frequency loss with better low and high
-  if (t1000 > t500 + 10 && t1000 > t4000 + 10) return 'cookie-bite'
-  if (t2000 > t500 + 10 && t2000 > t4000 + 10) return 'cookie-bite'
+  const midAvg = (t1000 + t2000) / 2
+  if (midAvg > lowAvg + 10 && midAvg > highAvg + 10) return 'cookie-bite'
 
-  // Sloping: progressive high-frequency loss
-  if (t4000 - t500 > 20) return 'sloping'
+  // Notch: specific 4000 Hz or 8000 Hz dip (noise-induced)
+  // 4kHz notch is classic noise-induced hearing loss pattern
+  if (t4000 > t2000 + 15 && t4000 > t8000 + 10) return 'notch'
+  // 6kHz equivalent: 8kHz dip with recovery not measurable (ceiling effect)
+  if (t8000 > t4000 + 20 && t4000 <= 25) return 'notch'
+
+  // Sloping: progressive high-frequency loss (most common sensorineural pattern)
+  if (t8000 - t250 > 20 || t4000 - t500 > 20) return 'sloping'
 
   // Rising: better at high frequencies (rare in children)
-  if (t500 - t4000 > 20) return 'rising'
-
-  // Notch: specific 4000 Hz dip (noise-induced)
-  if (t4000 > t2000 + 15 && t4000 > t1000 + 15) return 'notch'
+  if (t500 - t4000 > 20 || t250 - t8000 > 25) return 'rising'
 
   // Flat: similar across all frequencies
-  const range = Math.max(t500, t1000, t2000, t4000) - Math.min(t500, t1000, t2000, t4000)
-  if (range <= 20 && Math.max(t500, t1000, t2000, t4000) > 20) return 'flat'
+  const range = maxThreshold - minThreshold
+  if (range <= 20 && maxThreshold > 20) return 'flat'
 
   return 'flat'
 }
@@ -259,7 +289,7 @@ export function measureAmbientNoise(channelData: Float32Array, sampleRate: numbe
  * Returns points sorted by frequency for each ear.
  */
 export function generateAudiogramData(thresholds: AudiometryThreshold[]): AudiogramPoint[] {
-  const freqOrder = [500, 1000, 2000, 4000]
+  const freqOrder = [250, 500, 1000, 2000, 4000, 8000]
   const points: AudiogramPoint[] = []
 
   for (const ear of ['left', 'right'] as Ear[]) {
@@ -354,9 +384,11 @@ export function suggestHearingChips(result: AudiometryResult): string[] {
   }
 
   // Frequency pattern
-  if (result.frequencyPattern === 'sloping') chips.push('hr7')    // High-frequency loss
-  else if (result.frequencyPattern === 'notch') chips.push('hr9') // 4kHz notch
+  if (result.frequencyPattern === 'sloping') chips.push('hr7')         // High-frequency loss
+  else if (result.frequencyPattern === 'notch') chips.push('hr9')      // 4kHz/8kHz notch
   else if (result.frequencyPattern === 'rising') chips.push('hr10')
+  else if (result.frequencyPattern === 'low-frequency') chips.push('hr11') // Conductive pattern
+  else if (result.frequencyPattern === 'reverse-slope') chips.push('hr12') // Reverse slope
 
   // Speech-frequency specific concern (even if PTA is borderline)
   const speechPTABetter = Math.min(result.speechPTALeft, result.speechPTARight)
@@ -371,5 +403,5 @@ export function suggestHearingChips(result: AudiometryResult): string[] {
     chips.push('hr7') // high-frequency loss even if PTA normal
   }
 
-  return [...new Set(chips)]
+  return Array.from(new Set(chips))
 }
