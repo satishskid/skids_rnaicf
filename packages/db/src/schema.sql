@@ -25,7 +25,8 @@ CREATE TABLE IF NOT EXISTS campaigns (
   pincode TEXT,
   lat REAL,
   lng REAL,
-  metadata TEXT  -- JSON for flexible fields
+  metadata TEXT,  -- JSON for flexible fields
+  reports_released INTEGER DEFAULT 0  -- 0 = not released, 1 = parent reports available
 );
 
 -- Children (patients)
@@ -42,10 +43,12 @@ CREATE TABLE IF NOT EXISTS children (
   academic_year TEXT,
   school_name TEXT,
   campaign_code TEXT NOT NULL REFERENCES campaigns(code),
+  qr_code TEXT UNIQUE,  -- 8-char code for parent portal access (printed on health card)
   created_by TEXT NOT NULL,
   created_at TEXT DEFAULT (datetime('now')),
   updated_at TEXT DEFAULT (datetime('now'))
 );
+CREATE INDEX IF NOT EXISTS idx_children_qr ON children(qr_code);
 CREATE INDEX IF NOT EXISTS idx_children_campaign ON children(campaign_code);
 
 -- Observations (screening results)
@@ -161,3 +164,201 @@ CREATE TABLE IF NOT EXISTS ayusync_reports (
 );
 CREATE INDEX IF NOT EXISTS idx_ayusync_campaign ON ayusync_reports(campaign_code);
 CREATE INDEX IF NOT EXISTS idx_ayusync_child ON ayusync_reports(campaign_code, child_id);
+
+-- Campaign assignments (authority scoping — which users see which campaigns)
+CREATE TABLE IF NOT EXISTS campaign_assignments (
+  id TEXT PRIMARY KEY,
+  user_id TEXT NOT NULL,
+  campaign_code TEXT NOT NULL REFERENCES campaigns(code),
+  assigned_by TEXT NOT NULL,
+  assigned_at TEXT DEFAULT (datetime('now')),
+  UNIQUE(user_id, campaign_code)
+);
+CREATE INDEX IF NOT EXISTS idx_ca_user ON campaign_assignments(user_id);
+CREATE INDEX IF NOT EXISTS idx_ca_campaign ON campaign_assignments(campaign_code);
+
+-- ============================================
+-- CLINICAL RESEARCH PLATFORM TABLES
+-- ============================================
+
+-- Consent form templates (created by researchers/admins)
+CREATE TABLE IF NOT EXISTS consent_templates (
+  id TEXT PRIMARY KEY DEFAULT (lower(hex(randomblob(8)))),
+  org_code TEXT NOT NULL,
+  title TEXT NOT NULL,
+  version TEXT NOT NULL DEFAULT '1.0',
+  language TEXT NOT NULL DEFAULT 'en',
+  body_html TEXT NOT NULL,
+  requires_witness INTEGER DEFAULT 0,
+  min_age_for_assent INTEGER,
+  status TEXT DEFAULT 'draft' CHECK (status IN ('draft', 'active', 'archived')),
+  created_by TEXT,
+  created_at TEXT DEFAULT (datetime('now')),
+  updated_at TEXT DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_ct_org ON consent_templates(org_code);
+
+-- Individual consent records
+CREATE TABLE IF NOT EXISTS consents (
+  id TEXT PRIMARY KEY DEFAULT (lower(hex(randomblob(8)))),
+  template_id TEXT NOT NULL REFERENCES consent_templates(id),
+  campaign_code TEXT REFERENCES campaigns(code),
+  child_id TEXT REFERENCES children(id),
+  guardian_name TEXT NOT NULL,
+  guardian_relation TEXT,
+  guardian_signature TEXT,
+  child_assent_signature TEXT,
+  witness_name TEXT,
+  witness_signature TEXT,
+  consented INTEGER NOT NULL DEFAULT 1,
+  consent_date TEXT DEFAULT (datetime('now')),
+  ip_address TEXT,
+  device_info TEXT,
+  withdrawn_at TEXT,
+  withdrawn_reason TEXT,
+  collected_by TEXT,
+  created_at TEXT DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_consents_child ON consents(child_id);
+CREATE INDEX IF NOT EXISTS idx_consents_campaign ON consents(campaign_code);
+CREATE INDEX IF NOT EXISTS idx_consents_template ON consents(template_id);
+
+-- Survey/instrument definitions (JSON schema, SurveyJS-compatible)
+CREATE TABLE IF NOT EXISTS instruments (
+  id TEXT PRIMARY KEY DEFAULT (lower(hex(randomblob(8)))),
+  org_code TEXT NOT NULL,
+  name TEXT NOT NULL,
+  description TEXT,
+  category TEXT CHECK (category IN ('screening', 'survey', 'questionnaire', 'crf')),
+  schema_json TEXT NOT NULL,
+  scoring_logic TEXT,
+  version TEXT DEFAULT '1.0',
+  status TEXT DEFAULT 'draft' CHECK (status IN ('draft', 'active', 'archived')),
+  created_by TEXT,
+  created_at TEXT DEFAULT (datetime('now')),
+  updated_at TEXT DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_instruments_org ON instruments(org_code);
+
+-- Individual survey responses
+CREATE TABLE IF NOT EXISTS instrument_responses (
+  id TEXT PRIMARY KEY DEFAULT (lower(hex(randomblob(8)))),
+  instrument_id TEXT NOT NULL REFERENCES instruments(id),
+  campaign_code TEXT,
+  child_id TEXT REFERENCES children(id),
+  respondent_type TEXT CHECK (respondent_type IN ('nurse', 'parent', 'teacher', 'self', 'doctor')),
+  response_json TEXT NOT NULL,
+  score_json TEXT,
+  completed INTEGER DEFAULT 0,
+  started_at TEXT,
+  completed_at TEXT,
+  collected_by TEXT,
+  created_at TEXT DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_ir_instrument ON instrument_responses(instrument_id);
+CREATE INDEX IF NOT EXISTS idx_ir_child ON instrument_responses(child_id);
+CREATE INDEX IF NOT EXISTS idx_ir_campaign ON instrument_responses(campaign_code);
+
+-- Studies (clinical trials, research projects)
+CREATE TABLE IF NOT EXISTS studies (
+  id TEXT PRIMARY KEY DEFAULT (lower(hex(randomblob(8)))),
+  org_code TEXT NOT NULL,
+  title TEXT NOT NULL,
+  short_code TEXT NOT NULL UNIQUE,
+  description TEXT,
+  study_type TEXT NOT NULL CHECK (study_type IN ('observational', 'interventional', 'cohort', 'cross_sectional')),
+  status TEXT DEFAULT 'planning' CHECK (status IN ('planning', 'recruiting', 'active', 'paused', 'completed', 'archived')),
+  pi_name TEXT,
+  pi_email TEXT,
+  irb_number TEXT,
+  start_date TEXT,
+  end_date TEXT,
+  target_enrollment INTEGER,
+  consent_template_id TEXT REFERENCES consent_templates(id),
+  protocol_document_url TEXT,
+  created_by TEXT,
+  created_at TEXT DEFAULT (datetime('now')),
+  updated_at TEXT DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_studies_org ON studies(org_code);
+CREATE INDEX IF NOT EXISTS idx_studies_code ON studies(short_code);
+
+-- Study arms (e.g., control vs intervention)
+CREATE TABLE IF NOT EXISTS study_arms (
+  id TEXT PRIMARY KEY DEFAULT (lower(hex(randomblob(8)))),
+  study_id TEXT NOT NULL REFERENCES studies(id),
+  name TEXT NOT NULL,
+  description TEXT,
+  sort_order INTEGER DEFAULT 0
+);
+CREATE INDEX IF NOT EXISTS idx_sa_study ON study_arms(study_id);
+
+-- Study events (scheduled timepoints)
+CREATE TABLE IF NOT EXISTS study_events (
+  id TEXT PRIMARY KEY DEFAULT (lower(hex(randomblob(8)))),
+  study_id TEXT NOT NULL REFERENCES studies(id),
+  name TEXT NOT NULL,
+  day_offset INTEGER NOT NULL,
+  window_before INTEGER DEFAULT 3,
+  window_after INTEGER DEFAULT 7,
+  sort_order INTEGER DEFAULT 0
+);
+CREATE INDEX IF NOT EXISTS idx_se_study ON study_events(study_id);
+
+-- Which instruments are collected at each event
+CREATE TABLE IF NOT EXISTS study_event_instruments (
+  id TEXT PRIMARY KEY DEFAULT (lower(hex(randomblob(8)))),
+  study_event_id TEXT NOT NULL REFERENCES study_events(id),
+  instrument_id TEXT NOT NULL REFERENCES instruments(id),
+  required INTEGER DEFAULT 1,
+  sort_order INTEGER DEFAULT 0
+);
+CREATE INDEX IF NOT EXISTS idx_sei_event ON study_event_instruments(study_event_id);
+
+-- Study enrollment (links children to studies + arms)
+CREATE TABLE IF NOT EXISTS study_enrollments (
+  id TEXT PRIMARY KEY DEFAULT (lower(hex(randomblob(8)))),
+  study_id TEXT NOT NULL REFERENCES studies(id),
+  child_id TEXT NOT NULL REFERENCES children(id),
+  arm_id TEXT REFERENCES study_arms(id),
+  consent_id TEXT REFERENCES consents(id),
+  enrolled_at TEXT DEFAULT (datetime('now')),
+  withdrawn_at TEXT,
+  withdrawn_reason TEXT,
+  status TEXT DEFAULT 'active' CHECK (status IN ('active', 'completed', 'withdrawn')),
+  enrolled_by TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_senr_study ON study_enrollments(study_id);
+CREATE INDEX IF NOT EXISTS idx_senr_child ON study_enrollments(child_id);
+
+-- ============================================
+-- PARENT PORTAL BRIDGE TABLES
+-- ============================================
+
+-- Parent claims — links V3 screening children to parent portal firebase users
+-- This is the identity bridge between V3 (Better Auth) and Parent Portal (Firebase)
+CREATE TABLE IF NOT EXISTS parent_claims (
+  id TEXT PRIMARY KEY DEFAULT (lower(hex(randomblob(8)))),
+  child_id TEXT NOT NULL REFERENCES children(id),
+  firebase_uid TEXT NOT NULL,
+  parent_phone TEXT,
+  parent_name TEXT,
+  parent_email TEXT,
+  verified_at TEXT DEFAULT (datetime('now')),
+  UNIQUE(child_id, firebase_uid)
+);
+CREATE INDEX IF NOT EXISTS idx_parent_claims_firebase ON parent_claims(firebase_uid);
+CREATE INDEX IF NOT EXISTS idx_parent_claims_child ON parent_claims(child_id);
+
+-- Saved cohort definitions (reusable queries)
+CREATE TABLE IF NOT EXISTS cohort_definitions (
+  id TEXT PRIMARY KEY DEFAULT (lower(hex(randomblob(8)))),
+  org_code TEXT NOT NULL,
+  name TEXT NOT NULL,
+  description TEXT,
+  filter_json TEXT NOT NULL,
+  created_by TEXT,
+  created_at TEXT DEFAULT (datetime('now')),
+  updated_at TEXT DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_cohort_org ON cohort_definitions(org_code);

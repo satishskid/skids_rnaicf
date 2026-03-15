@@ -11,6 +11,7 @@
     "zod": "^3.24.0"
   },
   "devDependencies": {
+    "@types/fhir": "^0.0.41",
     "typescript": "^5.8.0"
   }
 }

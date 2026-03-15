@@ -2,7 +2,7 @@
   "expo": {
     "name": "SKIDS Screen",
     "slug": "skids-screen",
-    "version": "3.0.0",
+    "version": "3.1.0",
     "sdkVersion": "54.0.0",
     "scheme": "skids-screen",
     "platforms": [

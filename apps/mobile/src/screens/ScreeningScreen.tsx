@@ -97,7 +97,7 @@ interface SectionData {
 
 export function ScreeningScreen({ navigation, route }: Props) {
   const insets = useSafeAreaInsets()
-  const { token } = useAuth()
+  const { token, user } = useAuth()
 
   // Get campaignCode from route params (passed from CampaignDetail)
   const campaignCode = (route?.params as Record<string, unknown> | undefined)?.campaignCode as string | undefined
@@ -380,12 +380,14 @@ export function ScreeningScreen({ navigation, route }: Props) {
     <View style={styles.container}>
       {/* Header */}
       <View style={[styles.header, { paddingTop: insets.top + 12 }]}>
-        <View>
+        <View style={{ flex: 1 }}>
           <Text style={styles.headerTitle}>
             <Text style={styles.brandBold}>SKIDS</Text>
             <Text style={styles.brandLight}> screen</Text>
           </Text>
-          <Text style={styles.headerSubtitle}>Screening Modules</Text>
+          <Text style={styles.headerSubtitle}>
+            {user ? `Nurse: ${user.name}` : 'Screening Modules'}
+          </Text>
         </View>
         <View style={styles.countBadge}>
           <Text style={styles.countText}>{MODULE_CONFIGS.length} modules</Text>

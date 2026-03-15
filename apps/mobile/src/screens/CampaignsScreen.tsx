@@ -1,7 +1,7 @@
 // Campaigns screen (Home tab) — list of campaigns the nurse is part of
-// Card-based layout with status badges, pull-to-refresh, FAB for creation
+// Card-based layout with status badges, pull-to-refresh, logged-in user greeting
 
-import React, { useState, useCallback, useEffect } from 'react'
+import React, { useState, useCallback, useEffect, useMemo } from 'react'
 import {
   View,
   Text,
@@ -10,10 +10,8 @@ import {
   StyleSheet,
   RefreshControl,
   ActivityIndicator,
-  Alert,
-  TextInput,
-  Modal,
   Platform,
+  TextInput,
 } from 'react-native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { colors, spacing, borderRadius, fontSize, fontWeight, shadow } from '../theme'
@@ -39,18 +37,24 @@ const STATUS_COLORS: Record<string, { bg: string; text: string }> = {
 }
 
 export function CampaignsScreen({ navigation }: Props) {
-  const { token } = useAuth()
+  const { token, user } = useAuth()
   const insets = useSafeAreaInsets()
   const [campaigns, setCampaigns] = useState<Campaign[]>([])
   const [loading, setLoading] = useState(true)
   const [refreshing, setRefreshing] = useState(false)
-  const [showCreateModal, setShowCreateModal] = useState(false)
+  const [searchQuery, setSearchQuery] = useState('')
 
-  // Create campaign form state
-  const [newName, setNewName] = useState('')
-  const [newSchool, setNewSchool] = useState('')
-  const [newCity, setNewCity] = useState('')
-  const [creating, setCreating] = useState(false)
+  // Filter campaigns by search query
+  const filteredCampaigns = useMemo(() => {
+    if (!searchQuery.trim()) return campaigns
+    const q = searchQuery.toLowerCase()
+    return campaigns.filter(c =>
+      c.name.toLowerCase().includes(q) ||
+      c.code.toLowerCase().includes(q) ||
+      c.schoolName?.toLowerCase().includes(q) ||
+      c.city?.toLowerCase().includes(q)
+    )
+  }, [campaigns, searchQuery])
 
   const fetchCampaigns = useCallback(async () => {
     try {
@@ -77,41 +81,6 @@ export function CampaignsScreen({ navigation }: Props) {
     setRefreshing(true)
     fetchCampaigns()
   }, [fetchCampaigns])
-
-  const handleCreateCampaign = async () => {
-    if (!newName.trim()) {
-      Alert.alert('Required', 'Please enter a campaign name.')
-      return
-    }
-
-    setCreating(true)
-    try {
-      await apiCall('/api/campaigns', {
-        method: 'POST',
-        token: token || undefined,
-        body: JSON.stringify({
-          name: newName.trim(),
-          schoolName: newSchool.trim() || 'Field Screening',
-          campaignType: 'school',
-          academicYear: '2025-26',
-          location: {
-            city: newCity.trim() || undefined,
-          },
-        }),
-      })
-
-      setShowCreateModal(false)
-      setNewName('')
-      setNewSchool('')
-      setNewCity('')
-      fetchCampaigns()
-    } catch (err: unknown) {
-      const message = err instanceof Error ? err.message : 'Failed to create campaign'
-      Alert.alert('Error', message)
-    } finally {
-      setCreating(false)
-    }
-  }
 
   const getStatusStyle = (status: string) =>
     STATUS_COLORS[status] || STATUS_COLORS.active
@@ -189,26 +158,68 @@ export function CampaignsScreen({ navigation }: Props) {
     <View style={styles.container}>
       {/* Header */}
       <View style={[styles.header, { paddingTop: insets.top + 12 }]}>
-        <View>
+        <View style={{ flex: 1 }}>
           <Text style={styles.headerTitle}>
             <Text style={styles.brandBold}>SKIDS</Text>
             <Text style={styles.brandLight}> screen</Text>
           </Text>
-          <Text style={styles.headerSubtitle}>Your Campaigns</Text>
+          <Text style={styles.headerSubtitle}>
+            {user ? `Welcome, ${user.name.split(' ')[0]}` : 'Your Campaigns'}
+          </Text>
         </View>
-        <View style={styles.versionBadge}>
-          <Text style={styles.versionText}>v3.0</Text>
+        <View style={styles.userPill}>
+          <View style={styles.userAvatarSmall}>
+            <Text style={styles.userAvatarSmallText}>
+              {user?.name?.charAt(0)?.toUpperCase() || '?'}
+            </Text>
+          </View>
+          <View>
+            <Text style={styles.userPillName} numberOfLines={1}>
+              {user?.name || 'Unknown'}
+            </Text>
+            <Text style={styles.userPillRole}>
+              {user?.role ? user.role.charAt(0).toUpperCase() + user.role.slice(1).replace('_', ' ') : ''}
+            </Text>
+          </View>
         </View>
       </View>
 
+      {/* Search Bar */}
+      {campaigns.length > 0 && (
+        <View style={styles.searchSection}>
+          <View style={styles.searchBar}>
+            <Text style={styles.searchIcon}>{'🔍'}</Text>
+            <TextInput
+              style={styles.searchInput}
+              placeholder="Search campaigns by name, code, school..."
+              placeholderTextColor={colors.textMuted}
+              value={searchQuery}
+              onChangeText={setSearchQuery}
+              autoCapitalize="none"
+              autoCorrect={false}
+            />
+            {searchQuery.length > 0 && (
+              <TouchableOpacity onPress={() => setSearchQuery('')} style={styles.searchClear}>
+                <Text style={styles.searchClearText}>✕</Text>
+              </TouchableOpacity>
+            )}
+          </View>
+          {searchQuery.length > 0 && (
+            <Text style={styles.searchResultCount}>
+              {filteredCampaigns.length} of {campaigns.length} campaigns
+            </Text>
+          )}
+        </View>
+      )}
+
       {/* Campaign List */}
       <FlatList
-        data={campaigns}
+        data={filteredCampaigns}
         keyExtractor={(item) => item.code}
         renderItem={renderCampaignCard}
         contentContainerStyle={[
           styles.listContent,
-          campaigns.length === 0 && styles.emptyContainer,
+          filteredCampaigns.length === 0 && styles.emptyContainer,
         ]}
         refreshControl={
           <RefreshControl
@@ -229,89 +240,6 @@ export function CampaignsScreen({ navigation }: Props) {
         }
       />
 
-      {/* FAB — Create Campaign */}
-      <TouchableOpacity
-        style={[styles.fab, { bottom: insets.bottom + 24 }]}
-        onPress={() => setShowCreateModal(true)}
-        activeOpacity={0.85}
-      >
-        <Text style={styles.fabText}>+</Text>
-      </TouchableOpacity>
-
-      {/* Create Campaign Modal */}
-      <Modal
-        visible={showCreateModal}
-        animationType="slide"
-        transparent
-        onRequestClose={() => setShowCreateModal(false)}
-      >
-        <View style={styles.modalOverlay}>
-          <View style={styles.modalContent}>
-            <Text style={styles.modalTitle}>New Campaign</Text>
-            <Text style={styles.modalSubtitle}>
-              Set up a new screening campaign
-            </Text>
-
-            <View style={styles.inputGroup}>
-              <Text style={styles.inputLabel}>Campaign Name *</Text>
-              <TextInput
-                style={styles.input}
-                placeholder="e.g. Delhi Public School Screening"
-                placeholderTextColor={colors.textMuted}
-                value={newName}
-                onChangeText={setNewName}
-                editable={!creating}
-              />
-            </View>
-
-            <View style={styles.inputGroup}>
-              <Text style={styles.inputLabel}>School Name</Text>
-              <TextInput
-                style={styles.input}
-                placeholder="e.g. Delhi Public School"
-                placeholderTextColor={colors.textMuted}
-                value={newSchool}
-                onChangeText={setNewSchool}
-                editable={!creating}
-              />
-            </View>
-
-            <View style={styles.inputGroup}>
-              <Text style={styles.inputLabel}>City</Text>
-              <TextInput
-                style={styles.input}
-                placeholder="e.g. New Delhi"
-                placeholderTextColor={colors.textMuted}
-                value={newCity}
-                onChangeText={setNewCity}
-                editable={!creating}
-              />
-            </View>
-
-            <View style={styles.modalActions}>
-              <TouchableOpacity
-                style={styles.cancelButton}
-                onPress={() => setShowCreateModal(false)}
-                disabled={creating}
-              >
-                <Text style={styles.cancelButtonText}>Cancel</Text>
-              </TouchableOpacity>
-
-              <TouchableOpacity
-                style={[styles.createButton, creating && styles.buttonDisabled]}
-                onPress={handleCreateCampaign}
-                disabled={creating}
-              >
-                {creating ? (
-                  <ActivityIndicator color={colors.white} size="small" />
-                ) : (
-                  <Text style={styles.createButtonText}>Create</Text>
-                )}
-              </TouchableOpacity>
-            </View>
-          </View>
-        </View>
-      </Modal>
     </View>
   )
 }
@@ -354,16 +282,76 @@ const styles = StyleSheet.create({
     color: 'rgba(255,255,255,0.6)',
     marginTop: 2,
   },
-  versionBadge: {
-    backgroundColor: 'rgba(255,255,255,0.2)',
+  userPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(255,255,255,0.15)',
     paddingHorizontal: 10,
-    paddingVertical: 3,
-    borderRadius: 12,
+    paddingVertical: 6,
+    borderRadius: 20,
+    gap: 8,
+    maxWidth: 160,
   },
-  versionText: {
+  userAvatarSmall: {
+    width: 30,
+    height: 30,
+    borderRadius: 15,
+    backgroundColor: 'rgba(255,255,255,0.3)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  userAvatarSmallText: {
+    fontSize: 13,
+    fontWeight: fontWeight.bold,
     color: colors.white,
-    fontSize: fontSize.sm,
+  },
+  userPillName: {
+    color: colors.white,
+    fontSize: fontSize.xs,
     fontWeight: fontWeight.semibold,
+    maxWidth: 100,
+  },
+  userPillRole: {
+    color: 'rgba(255,255,255,0.6)',
+    fontSize: 10,
+    fontWeight: fontWeight.medium,
+  },
+  searchSection: {
+    paddingHorizontal: spacing.md,
+    paddingTop: spacing.sm,
+    backgroundColor: colors.background,
+  },
+  searchBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: colors.surface,
+    borderRadius: borderRadius.md,
+    borderWidth: 1,
+    borderColor: colors.border,
+    paddingHorizontal: spacing.sm,
+  },
+  searchIcon: {
+    fontSize: 16,
+    marginRight: spacing.xs,
+  },
+  searchInput: {
+    flex: 1,
+    fontSize: fontSize.base,
+    color: colors.text,
+    paddingVertical: 10,
+  },
+  searchClear: {
+    padding: spacing.xs,
+  },
+  searchClearText: {
+    fontSize: 16,
+    color: colors.textMuted,
+  },
+  searchResultCount: {
+    fontSize: fontSize.xs,
+    color: colors.textSecondary,
+    marginTop: 4,
+    textAlign: 'right',
   },
   listContent: {
     padding: spacing.md,
@@ -480,103 +468,5 @@ const styles = StyleSheet.create({
     color: colors.textSecondary,
     textAlign: 'center',
     lineHeight: 22,
-  },
-  fab: {
-    position: 'absolute',
-    right: spacing.lg,
-    width: 60,
-    height: 60,
-    borderRadius: 30,
-    backgroundColor: colors.primary,
-    alignItems: 'center',
-    justifyContent: 'center',
-    ...shadow.lg,
-  },
-  fabText: {
-    fontSize: 30,
-    color: colors.white,
-    fontWeight: fontWeight.normal,
-    marginTop: -2,
-  },
-  // Modal styles
-  modalOverlay: {
-    flex: 1,
-    backgroundColor: colors.overlay,
-    justifyContent: 'center',
-    paddingHorizontal: spacing.lg,
-  },
-  modalContent: {
-    backgroundColor: colors.surface,
-    borderRadius: borderRadius.lg,
-    padding: spacing.lg,
-    ...shadow.lg,
-  },
-  modalTitle: {
-    fontSize: fontSize.xl,
-    fontWeight: fontWeight.bold,
-    color: colors.text,
-    marginBottom: spacing.xs,
-  },
-  modalSubtitle: {
-    fontSize: fontSize.base,
-    color: colors.textSecondary,
-    marginBottom: spacing.lg,
-  },
-  inputGroup: {
-    marginBottom: spacing.md,
-  },
-  inputLabel: {
-    fontSize: fontSize.sm,
-    fontWeight: fontWeight.semibold,
-    color: colors.text,
-    marginBottom: spacing.xs + 2,
-  },
-  input: {
-    backgroundColor: colors.background,
-    borderWidth: 1,
-    borderColor: colors.border,
-    borderRadius: borderRadius.md,
-    paddingHorizontal: spacing.md,
-    paddingVertical: 14,
-    fontSize: fontSize.md,
-    color: colors.text,
-    minHeight: 52,
-  },
-  modalActions: {
-    flexDirection: 'row',
-    justifyContent: 'flex-end',
-    gap: spacing.sm,
-    marginTop: spacing.md,
-  },
-  cancelButton: {
-    paddingVertical: 14,
-    paddingHorizontal: spacing.lg,
-    borderRadius: borderRadius.md,
-    borderWidth: 1,
-    borderColor: colors.border,
-    minHeight: 52,
-    justifyContent: 'center',
-  },
-  cancelButtonText: {
-    fontSize: fontSize.base,
-    fontWeight: fontWeight.semibold,
-    color: colors.textSecondary,
-  },
-  createButton: {
-    paddingVertical: 14,
-    paddingHorizontal: spacing.lg,
-    borderRadius: borderRadius.md,
-    backgroundColor: colors.primary,
-    minHeight: 52,
-    justifyContent: 'center',
-    ...shadow.sm,
-  },
-  buttonDisabled: {
-    opacity: 0.7,
-  },
-  createButtonText: {
-    fontSize: fontSize.base,
-    fontWeight: fontWeight.bold,
-    color: colors.white,
   },
 })

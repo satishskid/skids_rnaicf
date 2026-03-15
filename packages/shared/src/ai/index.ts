@@ -8,3 +8,9 @@ export * from './clinical-color'
 export * from './mchat-scoring'
 export * from './motor'
 export * from './rppg'
+
+// AI Annotation Schema — standardized annotation records for every AI-analyzed observation
+export * from './annotation-schema'
+
+// AI Accuracy Metrics — sensitivity, specificity, agreement tracking per module
+export * from './accuracy-metrics'

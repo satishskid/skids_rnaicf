@@ -28,13 +28,13 @@ export interface LLMConfig {
 }
 
 export const DEFAULT_LLM_CONFIG: LLMConfig = {
-  mode: 'local_only',
+  mode: 'local_first',
   ollamaUrl: 'http://localhost:11434',
   ollamaModel: 'lfm2.5-vl:1.6b',
-  cloudGatewayUrl: '',
+  cloudGatewayUrl: 'https://skids-api.satish-9f4.workers.dev/api/ai',
   cloudProvider: 'gemini',
-  cloudApiKey: '',
-  sendImagesToCloud: false,
+  cloudApiKey: '', // Not needed — worker handles API key server-side
+  sendImagesToCloud: true,
 }
 
 const LLM_CONFIG_KEY = '@skids/llm-config'
@@ -241,25 +241,75 @@ function getCloudModelId(provider: CloudProvider): string {
 
 async function callCloudGateway(config: LLMConfig, messages: LLMMessage[]): Promise<LLMResponse> {
   const startTime = performance.now()
-  if (!config.cloudGatewayUrl || !config.cloudApiKey) {
+  if (!config.cloudGatewayUrl) {
     return { text: '', provider: config.cloudProvider, model: config.cloudProvider, latencyMs: 0, error: 'Cloud AI not configured.' }
   }
 
+  // Check if any message has images — use /vision endpoint
+  const hasImages = config.sendImagesToCloud && messages.some(m => m.images?.length)
+
+  if (hasImages) {
+    // Use the worker's /vision endpoint which handles Gemini API key server-side
+    const userMessage = messages.find(m => m.role === 'user')
+    const imageBase64 = userMessage?.images?.[0] || ''
+
+    // Extract module info from the system prompt
+    const systemMessage = messages.find(m => m.role === 'system')
+    const moduleMatch = systemMessage?.content?.match(/provided (.*?) screening/)
+    const moduleName = moduleMatch?.[1] || 'clinical'
+
+    try {
+      const res = await fetch(`${config.cloudGatewayUrl}/vision`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(config.cloudApiKey ? { Authorization: `Bearer ${config.cloudApiKey}` } : {}),
+        },
+        body: JSON.stringify({
+          image: imageBase64,
+          moduleType: moduleName.toLowerCase().replace(/\s+/g, '_'),
+          moduleName,
+        }),
+      })
+
+      if (!res.ok) throw new Error(`Cloud vision: ${res.status}`)
+      const data = await res.json() as { result?: Record<string, unknown>; error?: string; latencyMs?: number; tokensUsed?: number }
+
+      if (data.result) {
+        return {
+          text: JSON.stringify(data.result),
+          provider: 'gemini-2.0-flash',
+          model: 'gemini-2.0-flash',
+          tokensUsed: data.tokensUsed as number | undefined,
+          latencyMs: Math.round(performance.now() - startTime),
+        }
+      }
+
+      return { text: '', provider: 'gemini-2.0-flash', model: 'gemini-2.0-flash', latencyMs: Math.round(performance.now() - startTime), error: data.error || 'Empty response' }
+    } catch (err) {
+      return { text: '', provider: 'gemini-2.0-flash', model: 'gemini-2.0-flash', latencyMs: Math.round(performance.now() - startTime), error: err instanceof Error ? err.message : 'Cloud vision failed' }
+    }
+  }
+
+  // Standard text-only cloud request (for doctor AI summary etc.)
   const cloudMessages = messages.map(m => ({
     role: m.role, content: m.content,
-    ...(config.sendImagesToCloud && m.images ? { images: m.images } : {}),
   }))
 
   try {
-    const res = await fetch(config.cloudGatewayUrl, {
+    const res = await fetch(`${config.cloudGatewayUrl}/analyze`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${config.cloudApiKey}`, 'X-Provider': config.cloudProvider },
+      headers: {
+        'Content-Type': 'application/json',
+        ...(config.cloudApiKey ? { Authorization: `Bearer ${config.cloudApiKey}` } : {}),
+        'X-Provider': config.cloudProvider,
+      },
       body: JSON.stringify({ model: getCloudModelId(config.cloudProvider), messages: cloudMessages, max_tokens: 1024, temperature: 0.3 }),
     })
 
     if (!res.ok) throw new Error(`Cloud gateway: ${res.status}`)
     const data = await res.json()
-    const text = data.choices?.[0]?.message?.content || data.content?.[0]?.text || data.candidates?.[0]?.content?.parts?.[0]?.text || ''
+    const text = data.choices?.[0]?.message?.content || data.content?.[0]?.text || data.candidates?.[0]?.content?.parts?.[0]?.text || data.result ? JSON.stringify(data.result) : ''
 
     return { text, provider: config.cloudProvider, model: getCloudModelId(config.cloudProvider), tokensUsed: data.usage?.total_tokens, latencyMs: Math.round(performance.now() - startTime) }
   } catch (err) {

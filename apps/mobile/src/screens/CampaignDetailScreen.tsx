@@ -11,11 +11,15 @@ import {
   RefreshControl,
   ActivityIndicator,
   Platform,
+  TextInput,
+  Modal,
 } from 'react-native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { colors, spacing, borderRadius, fontSize, fontWeight, shadow } from '../theme'
 import { useAuth } from '../lib/AuthContext'
 import { apiCall } from '../lib/api'
+import { ReadinessCheck } from '../components/ReadinessCheck'
+import { CameraView, useCameraPermissions } from 'expo-camera'
 import type { Campaign, Child } from '../lib/types'
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack'
 import type { RouteProp } from '@react-navigation/native'
@@ -59,8 +63,23 @@ export function CampaignDetailScreen({ navigation, route }: Props) {
   const [childModuleMap, setChildModuleMap] = useState<Record<string, Set<string>>>({})
   const [loading, setLoading] = useState(true)
   const [refreshing, setRefreshing] = useState(false)
+  const [childSearch, setChildSearch] = useState('')
+  const [showDeviceReadiness, setShowDeviceReadiness] = useState(false)
+  const [showQRScanner, setShowQRScanner] = useState(false)
+  const [cameraPermission, requestCameraPermission] = useCameraPermissions()
 
   const totalModules = campaign.enabledModules?.length || 27
+
+  // Filter children by search query
+  const filteredChildren = useMemo(() => {
+    if (!childSearch.trim()) return children
+    const q = childSearch.toLowerCase()
+    return children.filter(c =>
+      c.name.toLowerCase().includes(q) ||
+      (c.admissionNumber && c.admissionNumber.toLowerCase().includes(q)) ||
+      (c.class && c.class.toLowerCase().includes(q))
+    )
+  }, [children, childSearch])
 
   const fetchCampaignData = useCallback(async () => {
     try {
@@ -246,6 +265,46 @@ export function CampaignDetailScreen({ navigation, route }: Props) {
           </View>
         )}
 
+        {/* Search Children + QR Scanner — always visible, BEFORE actions */}
+        <View style={styles.searchSection}>
+          <View style={styles.searchRow}>
+            <View style={[styles.searchBar, { flex: 1 }]}>
+              <Text style={styles.searchIcon}>{'\u{1F50D}'}</Text>
+              <TextInput
+                style={styles.searchInput}
+                placeholder="Find child by name, class, or admission #"
+                placeholderTextColor={colors.textMuted}
+                value={childSearch}
+                onChangeText={setChildSearch}
+                autoCapitalize="none"
+                autoCorrect={false}
+              />
+              {childSearch.length > 0 && (
+                <TouchableOpacity onPress={() => setChildSearch('')} style={styles.searchClear}>
+                  <Text style={styles.searchClearText}>{'\u2715'}</Text>
+                </TouchableOpacity>
+              )}
+            </View>
+            <TouchableOpacity
+              style={styles.qrButton}
+              onPress={async () => {
+                if (!cameraPermission?.granted) {
+                  const result = await requestCameraPermission()
+                  if (!result.granted) return
+                }
+                setShowQRScanner(true)
+              }}
+            >
+              <Text style={styles.qrButtonText}>{'\u{1F4F7}'} QR</Text>
+            </TouchableOpacity>
+          </View>
+          <Text style={styles.searchResultCount}>
+            {childSearch
+              ? `${filteredChildren.length} of ${children.length} children`
+              : `${children.length} children registered`}
+          </Text>
+        </View>
+
         {/* Action Buttons */}
         <View style={styles.actionRow}>
           <TouchableOpacity
@@ -266,14 +325,14 @@ export function CampaignDetailScreen({ navigation, route }: Props) {
             }
             activeOpacity={0.8}
           >
-            <Text style={[styles.actionIcon, { color: colors.white }]}>{'>'}</Text>
+            <Text style={[styles.actionIcon, { color: colors.white }]}>{'\u{25B6}'}</Text>
             <Text style={[styles.actionText, { color: colors.white }]}>
               Start Screening
             </Text>
           </TouchableOpacity>
         </View>
 
-        {/* View Observations (useful for doctors/reviewers) */}
+        {/* Secondary Actions Row */}
         <View style={styles.actionRow}>
           <TouchableOpacity
             style={[styles.actionButton, { borderColor: colors.secondary }]}
@@ -285,17 +344,28 @@ export function CampaignDetailScreen({ navigation, route }: Props) {
             }
             activeOpacity={0.8}
           >
-            <Text style={[styles.actionIcon, { color: colors.secondary }]}>{'\u{1F50D}'}</Text>
+            <Text style={[styles.actionIcon, { color: colors.secondary }]}>{'\u{1F4CB}'}</Text>
             <Text style={[styles.actionText, { color: colors.secondary }]}>
-              View Observations
+              Screening Results
+            </Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            style={[styles.actionButton, { borderColor: '#7c3aed' }]}
+            onPress={() => setShowDeviceReadiness(true)}
+            activeOpacity={0.8}
+          >
+            <Text style={[styles.actionIcon, { color: '#7c3aed' }]}>{'\u{2699}\u{FE0F}'}</Text>
+            <Text style={[styles.actionText, { color: '#7c3aed' }]}>
+              Device Check
             </Text>
           </TouchableOpacity>
         </View>
 
-        {/* Recent Children */}
+        {/* Children List */}
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>
-            Recently Registered ({children.length})
+            {childSearch ? `Search Results (${filteredChildren.length})` : `Registered Children (${children.length})`}
           </Text>
 
           {loading ? (
@@ -308,8 +378,14 @@ export function CampaignDetailScreen({ navigation, route }: Props) {
                 No children registered yet. Tap "Register Child" to add the first one.
               </Text>
             </View>
+          ) : filteredChildren.length === 0 ? (
+            <View style={styles.emptySection}>
+              <Text style={styles.emptyText}>
+                No children match "{childSearch}". Try a different search.
+              </Text>
+            </View>
           ) : (
-            children.slice(0, 20).map((child) => {
+            filteredChildren.slice(0, 50).map((child) => {
               const completedModules = childModuleMap[child.id]?.size || 0
               const progressPct = totalModules > 0 ? Math.round((completedModules / totalModules) * 100) : 0
               const progressColor = progressPct >= 100 ? colors.success : progressPct > 0 ? colors.primary : colors.textMuted
@@ -318,7 +394,18 @@ export function CampaignDetailScreen({ navigation, route }: Props) {
               const statusTextColor = progressPct >= 100 ? '#166534' : progressPct > 0 ? '#1e40af' : '#475569'
 
               return (
-                <View key={child.id} style={styles.childCard}>
+                <TouchableOpacity
+                  key={child.id}
+                  style={styles.childCard}
+                  activeOpacity={0.7}
+                  onPress={() =>
+                    navigation.navigate('Screening', {
+                      campaignCode: campaign.code,
+                      childId: child.id,
+                      childName: child.name,
+                    } as any)
+                  }
+                >
                   <View style={styles.childRow}>
                     <View style={styles.childAvatar}>
                       <Text style={styles.childAvatarText}>
@@ -341,6 +428,7 @@ export function CampaignDetailScreen({ navigation, route }: Props) {
                         {' | '}{completedModules}/{totalModules} screened
                       </Text>
                     </View>
+                    <Text style={{ fontSize: 16, color: colors.textMuted, marginLeft: 4 }}>{'\u{25B6}'}</Text>
                   </View>
                   <View style={styles.childProgressTrack}>
                     <View
@@ -350,12 +438,78 @@ export function CampaignDetailScreen({ navigation, route }: Props) {
                       ]}
                     />
                   </View>
-                </View>
+                </TouchableOpacity>
               )
             })
           )}
         </View>
       </ScrollView>
+
+      {/* QR Scanner Modal */}
+      <Modal visible={showQRScanner} transparent animationType="slide">
+        <View style={styles.readinessOverlay}>
+          <View style={[styles.readinessModal, { height: 500 }]}>
+            <Text style={styles.readinessTitle}>{'\u{1F4F7}'} Scan Child QR Code</Text>
+            <Text style={styles.readinessSubtitle}>Point camera at the child's QR code to find them</Text>
+            {cameraPermission?.granted ? (
+              <View style={{ flex: 1, borderRadius: 12, overflow: 'hidden', marginVertical: 12 }}>
+                <CameraView
+                  style={{ flex: 1 }}
+                  facing="back"
+                  barcodeScannerSettings={{
+                    barcodeTypes: ['qr', 'code128', 'code39', 'ean13'],
+                  }}
+                  onBarcodeScanned={({ data }) => {
+                    setShowQRScanner(false)
+                    // Try to match scanned data to a child (by ID, admission number, or name)
+                    const scannedLower = data.toLowerCase()
+                    const match = children.find(c =>
+                      c.id === data ||
+                      c.admissionNumber === data ||
+                      c.name.toLowerCase() === scannedLower
+                    )
+                    if (match) {
+                      setChildSearch(match.name)
+                    } else {
+                      // Try partial match
+                      setChildSearch(data)
+                    }
+                  }}
+                />
+              </View>
+            ) : (
+              <Text style={{ color: colors.textSecondary, textAlign: 'center', marginTop: 20 }}>
+                Camera permission required for QR scanning
+              </Text>
+            )}
+            <TouchableOpacity
+              style={styles.readinessDismiss}
+              onPress={() => setShowQRScanner(false)}
+            >
+              <Text style={styles.readinessDismissText}>Cancel</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Device Readiness Modal */}
+      <Modal visible={showDeviceReadiness} transparent animationType="slide">
+        <View style={styles.readinessOverlay}>
+          <View style={styles.readinessModal}>
+            <Text style={styles.readinessTitle}>Device & System Check</Text>
+            <Text style={styles.readinessSubtitle}>
+              Verify connected devices, AI engine, and calibration status
+            </Text>
+            <ReadinessCheck showContinueButton onReady={() => setShowDeviceReadiness(false)} />
+            <TouchableOpacity
+              style={styles.readinessDismiss}
+              onPress={() => setShowDeviceReadiness(false)}
+            >
+              <Text style={styles.readinessDismissText}>Close</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
     </View>
   )
 }
@@ -610,5 +764,98 @@ const styles = StyleSheet.create({
     fontSize: fontSize.xs,
     color: colors.textMuted,
     marginTop: spacing.xs,
+  },
+  // Search bar + QR
+  searchSection: {
+    paddingHorizontal: spacing.md,
+    marginTop: spacing.md,
+  },
+  searchRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  qrButton: {
+    backgroundColor: colors.primary,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    borderRadius: borderRadius.md,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  qrButtonText: {
+    color: colors.white,
+    fontSize: fontSize.sm,
+    fontWeight: fontWeight.bold,
+  },
+  searchBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: colors.surface,
+    borderRadius: borderRadius.md,
+    borderWidth: 1,
+    borderColor: colors.border,
+    paddingHorizontal: spacing.md,
+    minHeight: 48,
+    ...shadow.sm,
+  },
+  searchIcon: {
+    fontSize: 16,
+    marginRight: spacing.sm,
+  },
+  searchInput: {
+    flex: 1,
+    fontSize: fontSize.base,
+    color: colors.text,
+    paddingVertical: 10,
+  },
+  searchClear: {
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+  },
+  searchClearText: {
+    fontSize: 16,
+    color: colors.textMuted,
+  },
+  searchResultCount: {
+    fontSize: fontSize.xs,
+    color: colors.textSecondary,
+    marginTop: spacing.xs,
+    paddingHorizontal: spacing.xs,
+  },
+  // Device Readiness Modal
+  readinessOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    justifyContent: 'center',
+    padding: spacing.lg,
+  },
+  readinessModal: {
+    backgroundColor: colors.background,
+    borderRadius: borderRadius.lg,
+    padding: spacing.md,
+    maxHeight: '80%',
+    ...shadow.lg,
+  },
+  readinessTitle: {
+    fontSize: fontSize.lg,
+    fontWeight: fontWeight.bold,
+    color: colors.text,
+    marginBottom: spacing.xs,
+  },
+  readinessSubtitle: {
+    fontSize: fontSize.sm,
+    color: colors.textSecondary,
+    marginBottom: spacing.md,
+  },
+  readinessDismiss: {
+    alignItems: 'center',
+    paddingVertical: spacing.sm,
+    marginTop: spacing.sm,
+  },
+  readinessDismissText: {
+    fontSize: fontSize.sm,
+    color: colors.textMuted,
+    fontWeight: fontWeight.medium,
   },
 })

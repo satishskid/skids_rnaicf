@@ -1,7 +1,8 @@
 // Annotation chips — nurse selects clinical findings per screening module
 // Each chip represents a clinical observation with optional severity grading
+// Nurse-level chips are shown first for structured input
 
-import React, { useMemo } from 'react'
+import React, { useMemo, useState } from 'react'
 import {
   View,
   Text,
@@ -17,6 +18,8 @@ interface ChipDef {
   category: string
   hasSeverity?: boolean
   icdCode?: string
+  locationPin?: boolean
+  nurseLevel?: boolean
 }
 
 interface AnnotationChipsProps {
@@ -45,16 +48,99 @@ export function AnnotationChips({
 }: AnnotationChipsProps) {
   const selectedSet = useMemo(() => new Set(selectedChips), [selectedChips])
   const aiSet = useMemo(() => new Set(aiSuggestedChips), [aiSuggestedChips])
+  const [showAllFindings, setShowAllFindings] = useState(false)
 
-  const grouped = useMemo(() => {
+  // Split chips into nurse-level and doctor-level
+  const nurseChips = useMemo(() => chips.filter(c => c.nurseLevel), [chips])
+  const doctorChips = useMemo(() => chips.filter(c => !c.nurseLevel), [chips])
+
+  const hasNurseChips = nurseChips.length > 0
+  const hasDoctorChips = doctorChips.length > 0
+
+  // Group chips by category
+  const groupChips = (chipList: ChipDef[]) => {
     const groups: Record<string, ChipDef[]> = {}
-    for (const chip of chips) {
+    for (const chip of chipList) {
       const cat = chip.category || 'General'
       if (!groups[cat]) groups[cat] = []
       groups[cat].push(chip)
     }
     return Object.entries(groups)
-  }, [chips])
+  }
+
+  const nurseGrouped = useMemo(() => groupChips(nurseChips), [nurseChips])
+  const doctorGrouped = useMemo(() => groupChips(doctorChips), [doctorChips])
+
+  const renderChip = (chip: ChipDef) => {
+    const isSelected = selectedSet.has(chip.id)
+    const isAiSuggested = aiSet.has(chip.id)
+    return (
+      <View key={chip.id} style={styles.chipWrapper}>
+        <TouchableOpacity
+          style={[
+            styles.chip,
+            isSelected && styles.chipSelected,
+            isAiSuggested && !isSelected && styles.chipAiSuggested,
+            chip.nurseLevel && !isSelected && styles.chipNurseLevel,
+          ]}
+          onPress={() => onToggleChip(chip.id)}
+          activeOpacity={0.7}
+        >
+          <Text
+            style={[
+              styles.chipText,
+              isSelected && styles.chipTextSelected,
+            ]}
+            numberOfLines={2}
+          >
+            {chip.label}
+          </Text>
+          {isAiSuggested && (
+            <Text style={styles.aiIndicator}>AI</Text>
+          )}
+        </TouchableOpacity>
+
+        {isSelected && chip.hasSeverity && (
+          <View style={styles.severityRow}>
+            {SEVERITY_OPTIONS.map((sev) => {
+              const active = chipSeverities[chip.id] === sev.value
+              return (
+                <TouchableOpacity
+                  key={sev.value}
+                  style={[
+                    styles.severityBtn,
+                    { borderColor: sev.color },
+                    active && { backgroundColor: sev.color },
+                  ]}
+                  onPress={() => onSetSeverity(chip.id, sev.value)}
+                  activeOpacity={0.7}
+                >
+                  <Text
+                    style={[
+                      styles.severityText,
+                      { color: active ? colors.white : sev.color },
+                    ]}
+                  >
+                    {sev.label}
+                  </Text>
+                </TouchableOpacity>
+              )
+            })}
+          </View>
+        )}
+      </View>
+    )
+  }
+
+  const renderGroupedChips = (grouped: [string, ChipDef[]][]) =>
+    grouped.map(([category, categoryChips]) => (
+      <View key={category} style={styles.categorySection}>
+        <Text style={styles.categoryLabel}>{category}</Text>
+        <View style={styles.chipsRow}>
+          {categoryChips.map(renderChip)}
+        </View>
+      </View>
+    ))
 
   return (
     <View style={styles.container}>
@@ -66,72 +152,32 @@ export function AnnotationChips({
       </View>
 
       <ScrollView style={styles.scrollArea} nestedScrollEnabled>
-        {grouped.map(([category, categoryChips]) => (
-          <View key={category} style={styles.categorySection}>
-            <Text style={styles.categoryLabel}>{category}</Text>
-            <View style={styles.chipsRow}>
-              {categoryChips.map((chip) => {
-                const isSelected = selectedSet.has(chip.id)
-                const isAiSuggested = aiSet.has(chip.id)
-                return (
-                  <View key={chip.id} style={styles.chipWrapper}>
-                    <TouchableOpacity
-                      style={[
-                        styles.chip,
-                        isSelected && styles.chipSelected,
-                        isAiSuggested && !isSelected && styles.chipAiSuggested,
-                      ]}
-                      onPress={() => onToggleChip(chip.id)}
-                      activeOpacity={0.7}
-                    >
-                      <Text
-                        style={[
-                          styles.chipText,
-                          isSelected && styles.chipTextSelected,
-                        ]}
-                        numberOfLines={2}
-                      >
-                        {chip.label}
-                      </Text>
-                      {isAiSuggested && (
-                        <Text style={styles.aiIndicator}>AI</Text>
-                      )}
-                    </TouchableOpacity>
-
-                    {isSelected && chip.hasSeverity && (
-                      <View style={styles.severityRow}>
-                        {SEVERITY_OPTIONS.map((sev) => {
-                          const active = chipSeverities[chip.id] === sev.value
-                          return (
-                            <TouchableOpacity
-                              key={sev.value}
-                              style={[
-                                styles.severityBtn,
-                                { borderColor: sev.color },
-                                active && { backgroundColor: sev.color },
-                              ]}
-                              onPress={() => onSetSeverity(chip.id, sev.value)}
-                              activeOpacity={0.7}
-                            >
-                              <Text
-                                style={[
-                                  styles.severityText,
-                                  { color: active ? colors.white : sev.color },
-                                ]}
-                              >
-                                {sev.label}
-                              </Text>
-                            </TouchableOpacity>
-                          )
-                        })}
-                      </View>
-                    )}
-                  </View>
-                )
-              })}
+        {/* Nurse Priority Section */}
+        {hasNurseChips && (
+          <View style={styles.nursePrioritySection}>
+            <View style={styles.nursePriorityHeader}>
+              <Text style={styles.nursePriorityTitle}>{'\u{1F469}\u{200D}\u{2695}\u{FE0F}'} Nurse Priority</Text>
+              <Text style={styles.nursePriorityHint}>Select all that apply</Text>
             </View>
+            {renderGroupedChips(nurseGrouped)}
           </View>
-        ))}
+        )}
+
+        {/* Doctor / Additional Findings Section */}
+        {hasDoctorChips && (
+          <View>
+            <TouchableOpacity
+              style={styles.allFindingsToggle}
+              onPress={() => setShowAllFindings(!showAllFindings)}
+              activeOpacity={0.7}
+            >
+              <Text style={styles.allFindingsToggleText}>
+                {showAllFindings ? '\u25BC' : '\u25B6'} Additional Findings ({doctorChips.length})
+              </Text>
+            </TouchableOpacity>
+            {showAllFindings && renderGroupedChips(doctorGrouped)}
+          </View>
+        )}
       </ScrollView>
     </View>
   )
@@ -153,7 +199,7 @@ const styles = StyleSheet.create({
     marginBottom: spacing.md,
   },
   headerTitle: {
-    fontSize: fontSize.md,
+    fontSize: fontSize.lg,
     fontWeight: fontWeight.bold,
     color: colors.text,
   },
@@ -169,8 +215,44 @@ const styles = StyleSheet.create({
     color: colors.primary,
   },
   scrollArea: {
-    maxHeight: 400,
+    maxHeight: 500,
   },
+  // Nurse priority section
+  nursePrioritySection: {
+    backgroundColor: '#f0fdf4',
+    borderRadius: borderRadius.md,
+    padding: spacing.sm,
+    borderWidth: 1,
+    borderColor: '#bbf7d0',
+    marginBottom: spacing.md,
+  },
+  nursePriorityHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: spacing.sm,
+  },
+  nursePriorityTitle: {
+    fontSize: fontSize.base,
+    fontWeight: fontWeight.bold,
+    color: '#166534',
+  },
+  nursePriorityHint: {
+    fontSize: fontSize.xs,
+    color: '#16a34a',
+    fontStyle: 'italic',
+  },
+  // All findings toggle
+  allFindingsToggle: {
+    paddingVertical: spacing.sm,
+    marginBottom: spacing.sm,
+  },
+  allFindingsToggleText: {
+    fontSize: fontSize.sm,
+    fontWeight: fontWeight.semibold,
+    color: colors.textSecondary,
+  },
+  // Chips
   categorySection: {
     marginBottom: spacing.md,
   },
@@ -193,8 +275,8 @@ const styles = StyleSheet.create({
   chip: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: spacing.sm + 4,
-    paddingVertical: spacing.sm,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm + 2,
     borderRadius: borderRadius.full,
     borderWidth: 1.5,
     borderColor: colors.border,
@@ -208,8 +290,12 @@ const styles = StyleSheet.create({
     borderColor: '#d97706',
     backgroundColor: '#fffbeb',
   },
+  chipNurseLevel: {
+    borderColor: '#86efac',
+    backgroundColor: '#f0fdf4',
+  },
   chipText: {
-    fontSize: fontSize.sm,
+    fontSize: fontSize.base,
     fontWeight: fontWeight.medium,
     color: colors.text,
   },

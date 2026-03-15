@@ -21,6 +21,7 @@ import { RegisterChildScreen } from './src/screens/RegisterChildScreen'
 import { ScreeningScreen } from './src/screens/ScreeningScreen'
 import { ModuleScreen } from './src/screens/ModuleScreen'
 import { ProfileScreen } from './src/screens/ProfileScreen'
+import { SettingsScreen } from './src/screens/SettingsScreen'
 import { ObservationListScreen } from './src/screens/ObservationListScreen'
 import { DoctorReviewScreen } from './src/screens/DoctorReviewScreen'
 import { BatchSummaryScreen } from './src/screens/BatchSummaryScreen'
@@ -94,6 +95,7 @@ function TabIcon({ label, focused }: { label: string; focused: boolean }) {
     Home: '\u{1F3E0}',
     Screening: '\u{1FA7A}',
     Profile: '\u{1F464}',
+    Settings: '\u2699\uFE0F',
   }
   return (
     <Text style={{ fontSize: 22, opacity: focused ? 1 : 0.4 }}>
@@ -254,6 +256,16 @@ function MainTabs() {
           title: 'Profile',
           tabBarIcon: ({ focused }) => (
             <TabIcon label="Profile" focused={focused} />
+          ),
+        }}
+      />
+      <Tab.Screen
+        name="SettingsTab"
+        component={SettingsScreen}
+        options={{
+          title: 'Settings',
+          tabBarIcon: ({ focused }) => (
+            <TabIcon label="Settings" focused={focused} />
           ),
         }}
       />

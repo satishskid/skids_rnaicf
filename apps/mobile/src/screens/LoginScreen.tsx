@@ -258,7 +258,7 @@ export function LoginScreen() {
         )}
 
         {/* Version */}
-        <Text style={styles.versionText}>SKIDS Screen v3.0</Text>
+        <Text style={styles.versionText}>SKIDS Screen v3.1.0</Text>
       </ScrollView>
     </KeyboardAvoidingView>
   )
