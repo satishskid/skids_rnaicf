@@ -130,11 +130,260 @@ Be concise. Use bullet points. Highlight anything that needs urgent attention.`
 
 export interface VisionAnalysisResult {
   riskLevel: 'normal' | 'low' | 'moderate' | 'high'
-  findings: Array<{ label: string; chipId?: string; confidence: number; reasoning: string }>
+  findings: Array<{ label: string; chipId?: string; confidence: number; reasoning: string; region?: { x: number; y: number; w: number; h: number } }>
   urgentFlags: string[]
   summary: string
 }
 
+/**
+ * Modules where LLM vision should be the PRIMARY analysis path.
+ * For these modules, pixel-based analysis is inadequate for clinical accuracy —
+ * a vision LLM can identify specific conditions (caries, otitis, eczema, etc.)
+ * that color thresholds cannot distinguish.
+ *
+ * Pixel analysis still runs as OFFLINE FALLBACK when no network is available.
+ */
+export const LLM_PRIMARY_MODULES = new Set([
+  'dental', 'oral',
+  'ear', 'ent', 'otoscopy',
+  'skin', 'derma', 'wound',
+  'throat', 'mouth',
+  'nose',
+  'eyes_external',
+  'hair',
+  'nails',
+  'general_appearance',
+  'neck', 'abdomen',
+])
+
+export function isLLMPrimaryModule(moduleType: string): boolean {
+  const mod = moduleType.toLowerCase()
+  return LLM_PRIMARY_MODULES.has(mod) || Array.from(LLM_PRIMARY_MODULES).some(m => mod.includes(m))
+}
+
+// ── Per-module clinical context for structured LLM prompts ──
+
+interface ModuleClinicalContext {
+  anatomy: string
+  clinicalFocus: string[]
+  chipTable: string // formatted chip ID → label table for LLM
+  captureGuidance: string
+  urgentConditions: string[]
+}
+
+const MODULE_CLINICAL_CONTEXTS: Record<string, ModuleClinicalContext> = {
+  dental: {
+    anatomy: 'oral cavity — teeth, gums, palate, tongue, buccal mucosa',
+    clinicalFocus: [
+      'Dental caries (dark spots, cavities, enamel breakdown)',
+      'Gingival inflammation (red, swollen, bleeding gums)',
+      'Missing or supernumerary teeth',
+      'Malocclusion (crowding, spacing, crossbite)',
+      'Oral mucosal lesions (ulcers, white patches, candidiasis)',
+      'Enamel defects (hypoplasia, fluorosis, discoloration)',
+    ],
+    chipTable: `d1=Healthy teeth/gums, d2=Dental caries (K02), d3=Missing teeth (K08.1), d4=Malocclusion (K07), d5=Gingivitis (K05.1), d6=Gum bleeding (K06.8), d7=Oral ulcers (K12.1), d8=Thrush/oral candidiasis (B37.0), d9=Delayed eruption (K00.6), d10=Enamel hypoplasia (K00.4), d11=Supernumerary teeth (K00.1), d12=Dental fluorosis (K00.3), d13=Bruxism signs (F45.8), d14=Periodontal disease (K05), d15=Abscess (K12.2), d16=Lip abnormality (K13.0), d17=Cleft lip/palate (Q35-Q37), d18=High arched palate (Q38.5), d19=Tongue tie (Q38.1), d20=Geographic tongue (K14.1), d21=Ankyloglossia (Q38.1)`,
+    captureGuidance: 'Intraoral photo with flashlight illumination, upper and lower teeth visible',
+    urgentConditions: ['Abscess with swelling', 'Uncontrolled bleeding', 'Suspected malignancy'],
+  },
+  ear: {
+    anatomy: 'external ear canal, tympanic membrane (TM), pinna',
+    clinicalFocus: [
+      'Tympanic membrane color — pearl gray (normal) vs. erythematous, bulging, retracted',
+      'Middle ear effusion — air-fluid level, amber discoloration',
+      'Perforation — size, location, discharge',
+      'Cerumen impaction — partial vs. complete obstruction',
+      'External ear canal — otitis externa signs, foreign body',
+      'Laterality — always specify LEFT or RIGHT ear',
+    ],
+    chipTable: `e1_l=Left TM normal, e2_l=Left TM erythematous (H66.9), e3_l=Left TM bulging (H66.0), e4_l=Left TM retracted (H73.0), e5_l=Left effusion/fluid (H65.9), e6_l=Left perforation (H72), e7_l=Left wax impaction (H61.2), e8_l=Left otitis externa (H60), e9_l=Left foreign body (T16), e10_l=Left discharge (H92.1), e1_r=Right TM normal, e2_r=Right TM erythematous (H66.9), e3_r=Right TM bulging (H66.0), e4_r=Right TM retracted (H73.0), e5_r=Right effusion/fluid (H65.9), e6_r=Right perforation (H72), e7_r=Right wax impaction (H61.2), e8_r=Right otitis externa (H60), e9_r=Right foreign body (T16), e10_r=Right discharge (H92.1)`,
+    captureGuidance: 'Otoscope view of tympanic membrane, or external ear photo',
+    urgentConditions: ['Active bleeding', 'Suspected cholesteatoma', 'Mastoid tenderness'],
+  },
+  skin: {
+    anatomy: 'exposed skin surfaces — face, arms, legs, trunk, scalp margins',
+    clinicalFocus: [
+      'Rash morphology — macular, papular, vesicular, pustular, scaly',
+      'Distribution pattern — localized vs. generalized, dermatomal',
+      'Infection signs — fungal (ring-shaped), bacterial (honey-crusted), parasitic (burrows)',
+      'Chronic conditions — eczema (flexural), psoriasis (plaques with silvery scale)',
+      'Pigmentation changes — vitiligo (depigmented), hyperpigmentation',
+      'Wound assessment — granulation, slough, necrotic tissue',
+    ],
+    chipTable: `s1=Normal skin, s2=Rash/eruption (R21), s3=Fungal infection (B36.9), s4=Scabies (B86), s5=Impetigo (L01), s6=Eczema (L30.9), s7=Psoriasis (L40), s8=Vitiligo (L80), s9=Hyperpigmentation (L81.4), s10=Wound/laceration (T14.1), s11=Burn (T30), s12=Scar/keloid (L91), s13=Birthmark/nevus (D22), s14=Warts (B07), s15=Molluscum (B08.1), s16=Pediculosis (B85)`,
+    captureGuidance: 'Close-up photo of lesion with ruler/coin for scale, good lighting',
+    urgentConditions: ['Petechiae/purpura (meningococcemia)', 'Extensive burns', 'Signs of abuse'],
+  },
+  throat: {
+    anatomy: 'oropharynx — tonsils, posterior pharyngeal wall, uvula, soft palate',
+    clinicalFocus: [
+      'Tonsillar size (Grade 0-4) and symmetry',
+      'Exudate — white/yellow patches on tonsils (strep, mono)',
+      'Pharyngeal erythema — posterior wall redness',
+      'Uvula position — midline vs. deviated',
+      'Peritonsillar fullness — asymmetric swelling (abscess risk)',
+      'Post-nasal drip — cobblestoning of posterior pharynx',
+    ],
+    chipTable: `th1=Throat normal, th2=Tonsillar enlargement (J35.1), th3=Tonsillar exudate (J03.9), th4=Pharyngitis (J02.9), th5=Uvula deviation, th6=Post-nasal drip (J31.1), th7=Cobblestoning, th8=Peritonsillar swelling (J36)`,
+    captureGuidance: 'Photo of open throat with tongue depressor and flashlight',
+    urgentConditions: ['Peritonsillar abscess', 'Epiglottitis signs', 'Kissing tonsils (airway)'],
+  },
+  nose: {
+    anatomy: 'nasal passages — septum, turbinates, vestibule, mucosa',
+    clinicalFocus: [
+      'Discharge — clear (allergic), purulent (infection), bloody',
+      'Septal position — midline vs. deviated',
+      'Turbinate size — normal vs. hypertrophied, pale/boggy (allergic)',
+      'Polyps — smooth, glistening masses',
+      'Allergic stigmata — allergic salute, Dennie-Morgan lines',
+    ],
+    chipTable: `no1=Nose normal, no2=Nasal discharge (R09.8), no3=Deviated septum (J34.2), no4=Turbinate hypertrophy (J34.3), no5=Nasal polyp (J33), no6=Epistaxis signs (R04.0), no7=Allergic salute (J30.9)`,
+    captureGuidance: 'Photo from front showing nostrils, one per side if discharge',
+    urgentConditions: ['Uncontrolled epistaxis', 'Suspected foreign body', 'Septal hematoma'],
+  },
+  eyes_external: {
+    anatomy: 'external eye — eyelids, conjunctiva, sclera, cornea, periorbital area',
+    clinicalFocus: [
+      'Conjunctival color — pallor (anemia), injection (infection/allergy)',
+      'Discharge — watery vs. purulent',
+      'Lid position — ptosis, ectropion, lid swelling',
+      'Corneal clarity — opacity, foreign body',
+      'Scleral color — icterus (jaundice), injection',
+      'Periorbital findings — edema, discoloration',
+    ],
+    chipTable: `ee1=Eyes normal, ee2=Conjunctival pallor (H10.4), ee3=Conjunctivitis (H10.9), ee4=Jaundice/icterus (R17), ee5=Ptosis (H02.4), ee6=Stye/chalazion (H00), ee7=Discharge (H10.0), ee8=Corneal opacity (H17), ee9=Periorbital edema (H05.2)`,
+    captureGuidance: 'Close-up photo of both eyes open, then each eye individually',
+    urgentConditions: ['Chemical exposure', 'Penetrating injury', 'Sudden vision loss'],
+  },
+  hair: {
+    anatomy: 'scalp and hair — hair shafts, scalp skin, follicles',
+    clinicalFocus: [
+      'Infestations — pediculosis (lice, nits on hair shafts)',
+      'Alopecia — patchy (alopecia areata) vs. diffuse (nutritional)',
+      'Scalp conditions — dandruff, seborrheic dermatitis, tinea capitis',
+      'Hair quality — brittle, dry, flag sign (kwashiorkor)',
+    ],
+    chipTable: `h1=Hair normal, h2=Pediculosis/lice (B85.0), h3=Dandruff (L21.0), h4=Alopecia (L63), h5=Tinea capitis (B35.0), h6=Seborrheic dermatitis (L21), h7=Hair pulling/trichotillomania (F63.3)`,
+    captureGuidance: 'Photo of scalp with hair parted, close-up of any patches',
+    urgentConditions: ['Kerion (severe tinea capitis)', 'Signs of neglect/abuse'],
+  },
+  nails: {
+    anatomy: 'fingernails and toenails — nail bed, nail plate, cuticle, periungual tissue',
+    clinicalFocus: [
+      'Nail bed color — pallor (anemia), cyanosis (hypoxia)',
+      'Shape — clubbing (cardiopulmonary), koilonychia/spoon nails (iron deficiency)',
+      'Surface — pitting (psoriasis), ridging, Beau lines',
+      'Infections — fungal (onychomycosis), paronychia',
+    ],
+    chipTable: `na1=Nails normal, na2=Koilonychia/spoon nails (L60.3), na3=Nail bed pallor (anemia), na4=Cyanosis, na5=Clubbing (R68.3), na6=Fungal infection (B35.1), na7=Bitten nails, na8=Brittle/ridged nails (L60.3)`,
+    captureGuidance: 'Photo of both hands showing nail beds clearly',
+    urgentConditions: ['Acute paronychia with abscess', 'Splinter hemorrhages (endocarditis)'],
+  },
+  general_appearance: {
+    anatomy: 'overall nutritional and developmental status — body habitus, skin color, activity level',
+    clinicalFocus: [
+      'Nutritional status — well-nourished vs. wasting, stunting, obesity',
+      'Skin color — pallor (anemia), jaundice (liver), cyanosis (cardiac/pulmonary)',
+      'Activity level — alert and interactive vs. lethargic',
+      'Edema — pedal, facial, generalized',
+      'Dysmorphic features — congenital syndromes',
+    ],
+    chipTable: `ga1=Well-nourished, ga2=Malnourished (E46), ga3=Pallor/anemia (D64.9), ga4=Jaundice (R17), ga5=Cyanosis (R23.0), ga6=Edema (R60), ga7=Obesity (E66), ga8=Stunting (E45), ga9=Wasting (E41), ga10=Dysmorphic features (Q87), ga11=Lethargy (R53), ga12=Dehydration (E86)`,
+    captureGuidance: 'Full-body photo from front, face and body proportions visible',
+    urgentConditions: ['Severe dehydration', 'Respiratory distress', 'Altered consciousness'],
+  },
+}
+
+// Aliases — some modules have multiple names
+MODULE_CLINICAL_CONTEXTS['oral'] = MODULE_CLINICAL_CONTEXTS['dental']
+MODULE_CLINICAL_CONTEXTS['ent'] = MODULE_CLINICAL_CONTEXTS['ear']
+MODULE_CLINICAL_CONTEXTS['otoscopy'] = MODULE_CLINICAL_CONTEXTS['ear']
+MODULE_CLINICAL_CONTEXTS['derma'] = MODULE_CLINICAL_CONTEXTS['skin']
+MODULE_CLINICAL_CONTEXTS['wound'] = MODULE_CLINICAL_CONTEXTS['skin']
+MODULE_CLINICAL_CONTEXTS['mouth'] = MODULE_CLINICAL_CONTEXTS['throat']
+MODULE_CLINICAL_CONTEXTS['neck'] = MODULE_CLINICAL_CONTEXTS['general_appearance']
+MODULE_CLINICAL_CONTEXTS['abdomen'] = MODULE_CLINICAL_CONTEXTS['general_appearance']
+
+/**
+ * Build a structured, module-specific vision prompt for LLM-primary analysis.
+ *
+ * Unlike the generic `buildVisionPrompt`, this provides:
+ * - Exact chip IDs with labels and ICD codes so the LLM outputs valid chip references
+ * - Clinical focus areas specific to the anatomy being examined
+ * - Expected structured JSON output with optional bounding box regions
+ * - Urgent condition flags that should trigger immediate alerts
+ */
+export function buildStructuredVisionPrompt(
+  moduleType: string,
+  moduleName: string,
+  childAge?: string,
+  nurseChips?: string[],
+  chipSeverities?: Record<string, string>,
+): LLMMessage[] {
+  const mod = moduleType.toLowerCase()
+  const ctx = MODULE_CLINICAL_CONTEXTS[mod]
+
+  // Fallback to generic prompt if no clinical context exists
+  if (!ctx) {
+    return buildVisionPrompt(moduleType, moduleName, childAge, nurseChips, chipSeverities)
+  }
+
+  const systemPrompt = `You are a pediatric clinical screening AI analyzing a ${moduleName} image from a school health screening program in India.
+
+ANATOMY: ${ctx.anatomy}
+
+CLINICAL FOCUS — examine the image for:
+${ctx.clinicalFocus.map((f, i) => `${i + 1}. ${f}`).join('\n')}
+
+VALID FINDINGS — you MUST use these exact chip IDs in your response:
+${ctx.chipTable}
+
+RULES:
+1. You are a SCREENING AID — flag findings for doctor review, never diagnose
+2. Use ONLY the chip IDs listed above. Do not invent new IDs
+3. If the image is normal, return the "normal" chip (first in the list) with high confidence
+4. Rate confidence honestly: 0.3-0.5 = possible, 0.5-0.7 = likely, 0.7-0.9 = confident, 0.9+ = very clear
+5. If image quality is poor (blur, dark, wrong anatomy), say so in summary and lower confidence
+6. For each finding, describe WHERE in the image you see it (region as approximate % coordinates)
+7. URGENT conditions requiring immediate referral: ${ctx.urgentConditions.join(', ')}
+
+Respond ONLY with valid JSON (no markdown, no explanation):
+{
+  "riskLevel": "normal" | "low" | "moderate" | "high",
+  "findings": [
+    {
+      "label": "human-readable finding description",
+      "chipId": "exact chip ID from the list above",
+      "confidence": 0.0-1.0,
+      "severity": "normal" | "mild" | "moderate" | "severe",
+      "reasoning": "what you see in the image that supports this finding",
+      "region": { "x": 0.0-1.0, "y": 0.0-1.0, "w": 0.0-1.0, "h": 0.0-1.0 }
+    }
+  ],
+  "urgentFlags": [],
+  "summary": "1-2 sentence clinical summary"
+}`
+
+  let userContent = `Analyze this ${moduleName} screening image from a pediatric school health camp.`
+  if (childAge) userContent += ` Child age: ${childAge}.`
+  userContent += `\nCapture method: ${ctx.captureGuidance}`
+
+  if (nurseChips?.length) {
+    const chips = nurseChips.map(c => {
+      const sev = chipSeverities?.[c]
+      return sev && sev !== 'normal' ? `${c} (${sev})` : c
+    })
+    userContent += `\n\nNurse has pre-selected these findings: ${chips.join(', ')}`
+    userContent += `\nPlease CONFIRM or CORRECT the nurse's assessment based on the image.`
+  }
+
+  return [
+    { role: 'system', content: systemPrompt },
+    { role: 'user', content: userContent },
+  ]
+}
+
+// Keep the generic prompt for non-clinical modules (vision/photoscreening uses its own pipeline)
 export function buildVisionPrompt(
   moduleType: string, moduleName: string,
   childAge?: string, nurseChips?: string[],
@@ -278,16 +527,16 @@ async function callCloudGateway(config: LLMConfig, messages: LLMMessage[]): Prom
       if (data.result) {
         return {
           text: JSON.stringify(data.result),
-          provider: 'gemini-2.0-flash',
+          provider: 'gemini' as const,
           model: 'gemini-2.0-flash',
           tokensUsed: data.tokensUsed as number | undefined,
           latencyMs: Math.round(performance.now() - startTime),
         }
       }
 
-      return { text: '', provider: 'gemini-2.0-flash', model: 'gemini-2.0-flash', latencyMs: Math.round(performance.now() - startTime), error: data.error || 'Empty response' }
+      return { text: '', provider: 'gemini' as const, model: 'gemini-2.0-flash', latencyMs: Math.round(performance.now() - startTime), error: data.error || 'Empty response' }
     } catch (err) {
-      return { text: '', provider: 'gemini-2.0-flash', model: 'gemini-2.0-flash', latencyMs: Math.round(performance.now() - startTime), error: err instanceof Error ? err.message : 'Cloud vision failed' }
+      return { text: '', provider: 'gemini' as const, model: 'gemini-2.0-flash', latencyMs: Math.round(performance.now() - startTime), error: err instanceof Error ? err.message : 'Cloud vision failed' }
     }
   }
 

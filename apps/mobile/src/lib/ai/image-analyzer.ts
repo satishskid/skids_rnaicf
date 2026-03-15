@@ -28,9 +28,20 @@ import {
   dentalQualityGate, generalQualityGate,
 } from './quality-gate'
 import type { QualityGateResult } from './pipeline'
+import {
+  isLLMPrimaryModule as _isLLMPrimaryModule,
+  buildStructuredVisionPrompt,
+  parseVisionAnalysis,
+  queryLLM,
+  loadLLMConfig,
+  type LLMMessage,
+} from './llm-gateway'
 
 // Re-use the AIResult type from ai-engine
 import type { AIResult } from '../ai-engine'
+
+// Re-export for convenience
+export { _isLLMPrimaryModule as isLLMPrimaryModule }
 
 export interface ImageAnalysisResult {
   aiResult: AIResult
@@ -303,6 +314,201 @@ export async function analyzeImageOnDevice(
         classification: 'Unknown',
         confidence: 0,
         summary: `[On-device AI] Analysis failed: ${err instanceof Error ? err.message : 'unknown error'}`,
+        suggestedChips: [],
+      },
+      qualityGate: null,
+      analysisType,
+      onDevice: true,
+      inferenceMs,
+    }
+  }
+}
+
+// ── LLM-Primary Analysis for clinical image modules ──
+
+export interface LLMPrimaryAnalysisResult {
+  aiResult: AIResult
+  qualityGate: QualityGateResult | null
+  analysisType: ImageAnalysisResult['analysisType']
+  onDevice: false
+  llmProvider: string
+  llmModel: string
+  llmLatencyMs: number
+  inferenceMs: number
+  regions?: Array<{ chipId: string; label: string; region: { x: number; y: number; w: number; h: number } }>
+}
+
+/**
+ * Run LLM vision as the PRIMARY analysis path for clinical image modules.
+ *
+ * This is used for ENT/dental/skin/throat/nose/etc. where a vision LLM
+ * (Gemini Flash, LFM2-VL, MedGemma) can identify specific clinical conditions
+ * that pixel-based color thresholds cannot distinguish.
+ *
+ * Pipeline:
+ *   1. Quality gate (blur/exposure) — still runs on-device
+ *   2. LLM Vision — PRIMARY path, returns structured findings with chip IDs
+ *   3. Pixel analysis — runs in parallel as offline fallback
+ *
+ * If LLM fails (offline, timeout, error), falls back to on-device pixel analysis.
+ */
+export async function analyzeImageLLMPrimary(
+  imageUri: string,
+  moduleType: string,
+  moduleName: string,
+  childAge?: string,
+  nurseChips?: string[],
+  chipSeverities?: Record<string, string>,
+): Promise<ImageAnalysisResult | LLMPrimaryAnalysisResult> {
+  const startTime = performance.now()
+  const analysisType = getAnalysisType(moduleType)
+
+  // Run pixel analysis and LLM in parallel — use whichever succeeds with better result
+  const pixelPromise = analyzeImageOnDevice(imageUri, moduleType).catch(() => null)
+
+  try {
+    // Step 1: Read image as base64 for LLM
+    const base64 = await FileSystem.readAsStringAsync(imageUri, {
+      encoding: FileSystem.EncodingType.Base64,
+    })
+
+    // Step 2: Quick quality gate from pixel data (non-blocking)
+    let qualityGate: QualityGateResult | null = null
+    try {
+      const { pixels, width, height } = await imageUriToPixels(imageUri)
+      switch (analysisType) {
+        case 'ear': qualityGate = earQualityGate(pixels, width, height); break
+        case 'skin': qualityGate = skinQualityGate(pixels, width, height); break
+        case 'dental': qualityGate = dentalQualityGate(pixels, width, height); break
+        default: qualityGate = generalQualityGate(pixels, width, height)
+      }
+    } catch { /* quality gate is optional */ }
+
+    // Step 3: Build module-specific structured prompt
+    const messages = buildStructuredVisionPrompt(
+      moduleType, moduleName, childAge, nurseChips, chipSeverities
+    )
+
+    // Attach the image to the user message
+    const messagesWithImage: LLMMessage[] = messages.map(m =>
+      m.role === 'user' ? { ...m, images: [base64] } : m
+    )
+
+    // Step 4: Query LLM
+    const config = await loadLLMConfig()
+    const responses = await queryLLM(config, messagesWithImage)
+    const bestResponse = responses.find(r => !r.error && r.text)
+
+    if (!bestResponse?.text) {
+      // LLM failed — fall back to pixel analysis
+      const pixelResult = await pixelPromise
+      if (pixelResult) return pixelResult
+
+      throw new Error('Both LLM and pixel analysis failed')
+    }
+
+    // Step 5: Parse structured response
+    const visionResult = parseVisionAnalysis(bestResponse.text)
+    const inferenceMs = Math.round(performance.now() - startTime)
+
+    if (!visionResult || visionResult.findings.length === 0) {
+      // LLM returned empty — check if pixel analysis found something
+      const pixelResult = await pixelPromise
+      if (pixelResult && pixelResult.aiResult.confidence > 0.5) {
+        return pixelResult
+      }
+
+      // Both empty — return normal
+      return {
+        aiResult: {
+          classification: 'Normal',
+          confidence: 0.8,
+          summary: `[AI Vision] ${visionResult?.summary || 'No significant findings'}`,
+          suggestedChips: [],
+        },
+        qualityGate,
+        analysisType,
+        onDevice: false,
+        llmProvider: bestResponse.provider,
+        llmModel: bestResponse.model || bestResponse.provider,
+        llmLatencyMs: bestResponse.latencyMs,
+        inferenceMs,
+      } as LLMPrimaryAnalysisResult
+    }
+
+    // Step 6: Convert LLM findings to AIResult
+    const classificationMap: Record<string, string> = {
+      normal: 'Normal', low: 'Low Risk', moderate: 'Moderate Risk', high: 'High Risk',
+    }
+
+    const suggestedChips = visionResult.findings
+      .filter(f => f.chipId)
+      .map(f => f.chipId!)
+
+    const regions = visionResult.findings
+      .filter(f => f.chipId && f.region)
+      .map(f => ({
+        chipId: f.chipId!,
+        label: f.label,
+        region: f.region!,
+      }))
+
+    // Build rich summary from findings
+    const findingSummaries = visionResult.findings
+      .slice(0, 4) // top 4 findings
+      .map(f => `${f.label} (${Math.round(f.confidence * 100)}%)`)
+      .join(', ')
+
+    const urgentPrefix = visionResult.urgentFlags.length > 0
+      ? `⚠ URGENT: ${visionResult.urgentFlags.join(', ')} | `
+      : ''
+
+    const llmResult: LLMPrimaryAnalysisResult = {
+      aiResult: {
+        classification: classificationMap[visionResult.riskLevel] || 'Normal',
+        confidence: visionResult.findings.length > 0
+          ? Math.max(...visionResult.findings.map(f => f.confidence))
+          : 0.8,
+        summary: `[AI Vision] ${urgentPrefix}${findingSummaries || visionResult.summary}`,
+        suggestedChips,
+      },
+      qualityGate,
+      analysisType,
+      onDevice: false,
+      llmProvider: bestResponse.provider,
+      llmModel: bestResponse.model || bestResponse.provider,
+      llmLatencyMs: bestResponse.latencyMs,
+      inferenceMs,
+      regions: regions.length > 0 ? regions : undefined,
+    }
+
+    // Step 7: Merge with pixel analysis if it also found something
+    const pixelResult = await pixelPromise
+    if (pixelResult && pixelResult.aiResult.suggestedChips?.length > 0) {
+      // Add any pixel-detected chips that LLM missed (e.g. color anomalies)
+      const llmChipSet = new Set(suggestedChips)
+      const pixelOnlyChips = pixelResult.aiResult.suggestedChips.filter(c => !llmChipSet.has(c))
+      if (pixelOnlyChips.length > 0) {
+        llmResult.aiResult.suggestedChips = [...suggestedChips, ...pixelOnlyChips]
+        llmResult.aiResult.summary += ` | [On-device] also detected: ${pixelOnlyChips.join(', ')}`
+      }
+    }
+
+    return llmResult
+  } catch (err) {
+    // LLM path failed entirely — fall back to pixel analysis
+    const pixelResult = await pixelPromise
+    if (pixelResult) {
+      console.warn('LLM primary analysis failed, using pixel fallback:', err)
+      return pixelResult
+    }
+
+    const inferenceMs = Math.round(performance.now() - startTime)
+    return {
+      aiResult: {
+        classification: 'Unknown',
+        confidence: 0,
+        summary: `[AI] Analysis unavailable: ${err instanceof Error ? err.message : 'unknown error'}`,
         suggestedChips: [],
       },
       qualityGate: null,

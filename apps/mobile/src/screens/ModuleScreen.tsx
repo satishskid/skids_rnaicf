@@ -35,7 +35,7 @@ import {
   buildVisionPrompt, parseVisionAnalysis, queryLLM, loadLLMConfig,
   DEFAULT_LLM_CONFIG, type LLMMessage, type VisionAnalysisResult,
 } from '../lib/ai/llm-gateway'
-import { analyzeImageOnDevice } from '../lib/ai/image-analyzer'
+import { analyzeImageOnDevice, analyzeImageLLMPrimary, isLLMPrimaryModule } from '../lib/ai/image-analyzer'
 import { HearingForm } from '../components/HearingForm'
 import { MChatForm } from '../components/MChatForm'
 import { MotorTaskForm } from '../components/MotorTaskForm'
@@ -349,10 +349,64 @@ export function ModuleScreen({ navigation, route }: Props) {
     setQualityFeedback(feedback)
     setPipelineRunning(true)
 
-    // Run image AI: LOCAL FIRST, then cloud fallback
+    // Run image AI — different strategies for different module types:
+    //   LLM-PRIMARY modules (ENT/dental/skin/throat/etc.): LLM vision first, pixel fallback
+    //   OTHER modules (vision/photoscreening): On-device first, LLM enhancement
     const runImageAI = async () => {
       try {
-        // ═══ TIER 1: ON-DEVICE ANALYSIS (no network needed) ═══
+        const isLLMFirst = isLLMPrimaryModule(moduleType)
+
+        if (isLLMFirst) {
+          // ═══ LLM-PRIMARY PATH (dental, ear, skin, throat, nose, etc.) ═══
+          // These modules need a vision LLM to identify specific clinical conditions.
+          // Pixel analysis runs in parallel as offline fallback.
+          setQualityFeedback({
+            passed: true,
+            feedback: 'Analyzing with clinical AI vision...',
+            checks: [],
+          })
+
+          const result = await analyzeImageLLMPrimary(
+            capturedUri, moduleType, moduleConfig.name,
+            childAge, undefined, undefined
+          )
+
+          // Set quality gate
+          if (result.qualityGate) setQualityGateResult(result.qualityGate)
+
+          // Set AI result
+          setAiResult(result.aiResult)
+
+          // Auto-select suggested chips
+          if (result.aiResult.suggestedChips?.length) {
+            setSelectedChips(prev => {
+              const newSet = new Set(prev)
+              for (const chipId of result.aiResult.suggestedChips) {
+                if (chips.some(c => c.id === chipId)) newSet.add(chipId)
+              }
+              return Array.from(newSet)
+            })
+          }
+
+          // Build feedback message
+          const isLLMResult = 'llmProvider' in result && !result.onDevice
+          const providerInfo = isLLMResult
+            ? `AI Vision (${(result as { llmProvider: string }).llmProvider})`
+            : `On-device fallback`
+          const latency = result.inferenceMs
+
+          setQualityFeedback({
+            passed: result.qualityGate?.passed ?? true,
+            feedback: `${providerInfo} complete (${latency}ms) — ${result.aiResult.summary.slice(0, 80)}`,
+            checks: result.qualityGate?.checks || [],
+          })
+
+          return
+        }
+
+        // ═══ ON-DEVICE-PRIMARY PATH (vision/photoscreening, etc.) ═══
+        // These modules have strong on-device algorithms (red reflex, slope photorefraction).
+        // Cloud LLM enhances when confidence is low.
         setQualityFeedback({
           passed: true,
           feedback: 'Running on-device AI analysis...',
@@ -362,9 +416,7 @@ export function ModuleScreen({ navigation, route }: Props) {
         const localResult = await analyzeImageOnDevice(capturedUri, moduleType)
 
         // Set quality gate from local analysis
-        if (localResult.qualityGate) {
-          setQualityGateResult(localResult.qualityGate)
-        }
+        if (localResult.qualityGate) setQualityGateResult(localResult.qualityGate)
 
         // If local analysis found something meaningful, use it
         if (localResult.aiResult.confidence > 0.5 && localResult.aiResult.classification !== 'Unknown') {
@@ -384,11 +436,10 @@ export function ModuleScreen({ navigation, route }: Props) {
           setQualityFeedback({
             passed: localResult.qualityGate?.passed ?? true,
             feedback: `On-device AI complete (${localResult.inferenceMs}ms) — ${localResult.aiResult.summary.slice(0, 80)}`,
-            checks: localResult.qualityGate?.checks?.map(c => c.message) || [],
+            checks: localResult.qualityGate?.checks || [],
           })
 
-          // ═══ TIER 2: CLOUD ENHANCEMENT (optional, non-blocking) ═══
-          // If local confidence is low, try cloud for better analysis
+          // Cloud enhancement if low confidence
           if (localResult.aiResult.confidence < 0.7) {
             try {
               const base64 = await FileSystem.readAsStringAsync(capturedUri, {
@@ -409,7 +460,6 @@ export function ModuleScreen({ navigation, route }: Props) {
                   const classificationMap: Record<string, string> = {
                     normal: 'Normal', low: 'Low Risk', moderate: 'Moderate Risk', high: 'High Risk',
                   }
-                  // Merge cloud findings with local — cloud enhances, doesn't replace
                   const cloudResult: AIResult = {
                     classification: classificationMap[visionResult.riskLevel] || localResult.aiResult.classification,
                     confidence: Math.max(
@@ -420,11 +470,10 @@ export function ModuleScreen({ navigation, route }: Props) {
                     suggestedChips: [
                       ...localResult.aiResult.suggestedChips,
                       ...visionResult.findings.filter(f => f.chipId).map(f => f.chipId!),
-                    ].filter((v, i, a) => a.indexOf(v) === i), // dedupe
+                    ].filter((v, i, a) => a.indexOf(v) === i),
                   }
                   setAiResult(cloudResult)
 
-                  // Auto-select any new cloud-suggested chips
                   const newCloudChips = visionResult.findings.filter(f => f.chipId).map(f => f.chipId!)
                   if (newCloudChips.length > 0) {
                     setSelectedChips(prev => {
@@ -444,12 +493,11 @@ export function ModuleScreen({ navigation, route }: Props) {
                 }
               }
             } catch (cloudErr) {
-              // Cloud failed — local result is still displayed, no problem
               console.warn('Cloud AI enhancement failed (using local result):', cloudErr)
             }
           }
 
-          return // Local analysis succeeded
+          return
         }
 
         // ═══ LOCAL FAILED — FALL BACK TO CLOUD ═══
