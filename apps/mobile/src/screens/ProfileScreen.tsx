@@ -15,6 +15,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { colors, spacing, borderRadius, fontSize, fontWeight, shadow } from '../theme'
 import { useAuth } from '../lib/AuthContext'
 import { checkOllamaStatus, DEFAULT_LLM_CONFIG } from '../lib/ai/llm-gateway'
+import { APP_VERSION } from '../lib/constants'
 
 export function ProfileScreen() {
   const { user, logout } = useAuth()
@@ -140,7 +141,7 @@ export function ProfileScreen() {
             <View style={styles.divider} />
             <View style={styles.infoRow}>
               <Text style={styles.infoLabel}>Version</Text>
-              <Text style={styles.infoValue}>3.0.0</Text>
+              <Text style={styles.infoValue}>{APP_VERSION}</Text>
             </View>
             <View style={styles.divider} />
             <View style={styles.infoRow}>

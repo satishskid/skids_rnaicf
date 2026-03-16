@@ -1,5 +1,5 @@
-// Observation list for a campaign — used by doctors to review observations
-// Shows observation cards with module type, status, and child info
+// Observation list for a campaign
+// Nurses see saved/synced status; doctors/admins see review status (pending/approved/etc.)
 
 import React, { useState, useCallback, useEffect } from 'react'
 import {
@@ -29,7 +29,7 @@ interface Props {
   route: RouteProp<ParamList, 'ObservationList'>
 }
 
-const STATUS_COLORS: Record<string, { bg: string; text: string }> = {
+const REVIEW_STATUS_COLORS: Record<string, { bg: string; text: string }> = {
   pending: { bg: '#fef3c7', text: '#92400e' },
   approved: { bg: '#dcfce7', text: '#166534' },
   referred: { bg: '#fee2e2', text: '#991b1b' },
@@ -37,9 +37,20 @@ const STATUS_COLORS: Record<string, { bg: string; text: string }> = {
   retake: { bg: '#fce7f3', text: '#9d174d' },
 }
 
+// Nurses see simplified status — they don't need to know about validation workflow
+const NURSE_STATUS_COLORS: Record<string, { bg: string; text: string; label: string }> = {
+  saved: { bg: '#dcfce7', text: '#166534', label: 'Saved' },
+  synced: { bg: '#dbeafe', text: '#1e40af', label: 'Synced' },
+  reviewed: { bg: '#dcfce7', text: '#166534', label: 'Reviewed' },
+  needs_redo: { bg: '#fce7f3', text: '#9d174d', label: 'Redo Needed' },
+}
+
+const REVIEWER_ROLES = ['doctor', 'admin', 'ops_manager', 'authority']
+
 export function ObservationListScreen({ navigation, route }: Props) {
   const { campaignCode, campaignName } = route.params
-  const { token } = useAuth()
+  const { token, user } = useAuth()
+  const isReviewer = REVIEWER_ROLES.includes(user?.role || '')
   const [observations, setObservations] = useState<Observation[]>([])
   const [loading, setLoading] = useState(true)
   const [refreshing, setRefreshing] = useState(false)
@@ -69,17 +80,32 @@ export function ObservationListScreen({ navigation, route }: Props) {
     fetchObservations()
   }, [fetchObservations])
 
+  const getNurseStatus = (item: Observation) => {
+    const review = item.reviewStatus
+    if (review === 'retake') return NURSE_STATUS_COLORS.needs_redo
+    if (review === 'approved' || review === 'referred' || review === 'follow_up') return NURSE_STATUS_COLORS.reviewed
+    // For pending/undefined — show as synced (it reached the server) or saved
+    return item.id ? NURSE_STATUS_COLORS.synced : NURSE_STATUS_COLORS.saved
+  }
+
   const renderObservation = ({ item }: { item: Observation }) => {
     const config = getModuleConfig(item.moduleType)
     const bgColor = config ? getColorHex(config.color) : '#6b7280'
-    const status = item.reviewStatus || 'pending'
-    const statusStyle = STATUS_COLORS[status] || STATUS_COLORS.pending
+
+    // Reviewers see full review status; nurses see simplified saved/synced/reviewed
+    const reviewStatus = item.reviewStatus || 'pending'
+    const statusStyle = isReviewer
+      ? REVIEW_STATUS_COLORS[reviewStatus] || REVIEW_STATUS_COLORS.pending
+      : getNurseStatus(item)
+    const statusLabel = isReviewer
+      ? reviewStatus.replace('_', ' ')
+      : (statusStyle as { bg: string; text: string; label?: string }).label || 'Saved'
 
     return (
       <TouchableOpacity
         style={styles.card}
-        onPress={() => navigation.navigate('DoctorReview', { observation: item })}
-        activeOpacity={0.7}
+        onPress={isReviewer ? () => navigation.navigate('DoctorReview', { observation: item }) : undefined}
+        activeOpacity={isReviewer ? 0.7 : 1}
       >
         <View style={styles.cardRow}>
           <View style={[styles.moduleIcon, { backgroundColor: bgColor }]}>
@@ -96,7 +122,7 @@ export function ObservationListScreen({ navigation, route }: Props) {
           </View>
           <View style={[styles.statusBadge, { backgroundColor: statusStyle.bg }]}>
             <Text style={[styles.statusText, { color: statusStyle.text }]}>
-              {status.replace('_', ' ')}
+              {statusLabel}
             </Text>
           </View>
         </View>
@@ -144,7 +170,9 @@ export function ObservationListScreen({ navigation, route }: Props) {
             <Text style={styles.emptyIcon}>{'\u{1F50D}'}</Text>
             <Text style={styles.emptyTitle}>No observations yet</Text>
             <Text style={styles.emptySubtitle}>
-              Observations will appear here once nurses complete screenings
+              {isReviewer
+                ? 'Observations will appear here once nurses complete screenings'
+                : 'Your completed screenings will appear here'}
             </Text>
           </View>
         }

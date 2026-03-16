@@ -595,7 +595,10 @@ export async function checkOllamaStatus(
   model: string = DEFAULT_LLM_CONFIG.ollamaModel
 ): Promise<{ available: boolean; models: string[]; error?: string }> {
   try {
-    const res = await fetch(`${url}/api/tags`, { signal: AbortSignal.timeout(3000) })
+    const controller = new AbortController()
+    const timer = setTimeout(() => controller.abort(), 3000)
+    const res = await fetch(`${url}/api/tags`, { signal: controller.signal })
+    clearTimeout(timer)
     if (!res.ok) throw new Error(`HTTP ${res.status}`)
     const data = await res.json()
     const models = (data.models || []).map((m: { name: string }) => m.name)

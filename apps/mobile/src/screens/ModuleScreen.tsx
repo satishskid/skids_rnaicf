@@ -969,66 +969,67 @@ export function ModuleScreen({ navigation, route }: Props) {
       )
     }
 
-    if (moduleConfig.captureType === 'form') {
-      // Route to specialized form component based on moduleType
-      const handleFormResult = (result: AIResult) => {
-        setAiResult(result)
-        setCaptureStarted(true)
-        // Auto-select AI-suggested chips
-        if (result.suggestedChips?.length) {
-          setSelectedChips(prev => {
-            const newSet = new Set(prev)
-            for (const chipId of result.suggestedChips) {
-              if (chips.some(c => c.id === chipId)) newSet.add(chipId)
-            }
-            return Array.from(newSet)
-          })
-        }
+    // Shared handler for specialized form results
+    const handleFormResult = (result: AIResult) => {
+      setAiResult(result)
+      setCaptureStarted(true)
+      // Auto-select AI-suggested chips
+      if (result.suggestedChips?.length) {
+        setSelectedChips(prev => {
+          const newSet = new Set(prev)
+          for (const chipId of result.suggestedChips) {
+            if (chips.some(c => c.id === chipId)) newSet.add(chipId)
+          }
+          return Array.from(newSet)
+        })
       }
+    }
 
+    // Route specialized modules by type FIRST — these have dedicated forms
+    // regardless of captureType (some are 'video' but need form + video)
+    const modType = moduleType as string
+
+    if (modType === 'neurodevelopment' || modType === 'behavioral') {
+      return (
+        <View style={styles.captureSection}>
+          <BehavioralForm
+            onResult={handleFormResult}
+            childAge={ageMonths}
+            accentColor={bgColor}
+          />
+        </View>
+      )
+    }
+
+    if (modType === 'motor' || modType === 'gross_motor' || modType === 'fine_motor') {
+      return (
+        <View style={styles.captureSection}>
+          <MotorTaskForm
+            onResult={handleFormResult}
+            childAge={ageMonths}
+            accentColor={bgColor}
+          />
+        </View>
+      )
+    }
+
+    if (modType === 'mchat') {
+      return (
+        <View style={styles.captureSection}>
+          <MChatForm
+            onResult={handleFormResult}
+            childAge={ageMonths}
+            accentColor={bgColor}
+          />
+        </View>
+      )
+    }
+
+    if (moduleConfig.captureType === 'form') {
       if (moduleType === 'hearing') {
         return (
           <View style={styles.captureSection}>
             <HearingForm
-              onResult={handleFormResult}
-              childAge={ageMonths}
-              accentColor={bgColor}
-            />
-          </View>
-        )
-      }
-
-      // Cast to string for extensibility — some moduleTypes may be added to the union later
-      const modType = moduleType as string
-
-      if (modType === 'mchat') {
-        return (
-          <View style={styles.captureSection}>
-            <MChatForm
-              onResult={handleFormResult}
-              childAge={ageMonths}
-              accentColor={bgColor}
-            />
-          </View>
-        )
-      }
-
-      if (modType === 'motor' || modType === 'gross_motor' || modType === 'fine_motor') {
-        return (
-          <View style={styles.captureSection}>
-            <MotorTaskForm
-              onResult={handleFormResult}
-              childAge={ageMonths}
-              accentColor={bgColor}
-            />
-          </View>
-        )
-      }
-
-      if (modType === 'behavioral' || modType === 'neurodevelopment') {
-        return (
-          <View style={styles.captureSection}>
-            <BehavioralForm
               onResult={handleFormResult}
               childAge={ageMonths}
               accentColor={bgColor}
