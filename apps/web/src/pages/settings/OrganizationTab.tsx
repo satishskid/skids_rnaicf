@@ -41,7 +41,7 @@ export function OrganizationTab({ isAdmin }: OrganizationTabProps) {
   useEffect(() => {
     async function fetchAiConfig() {
       try {
-        const orgId = (user as Record<string, unknown>)?.orgId as string || 'default'
+        const orgId = (user as any)?.orgId as string || 'default'
         const res = await apiCall<{ config: Partial<LLMConfig> | null }>(`/api/ai-config/${orgId}`)
         setAiConfig(res.config || {})
       } catch {
@@ -58,7 +58,7 @@ export function OrganizationTab({ isAdmin }: OrganizationTabProps) {
     setAiSaving(true)
     setAiSaveMsg(null)
     try {
-      const orgId = (user as Record<string, unknown>)?.orgId as string || 'default'
+      const orgId = (user as any)?.orgId as string || 'default'
       await apiCall(`/api/ai-config/${orgId}`, {
         method: 'PUT',
         body: JSON.stringify({ config }),

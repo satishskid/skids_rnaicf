@@ -13,10 +13,12 @@ import {
   Apple,
   Settings,
   Check,
+  FileSpreadsheet,
 } from 'lucide-react'
 import { StatusBadge } from '../components/StatusBadge'
 import { LoadingSpinner } from '../components/LoadingSpinner'
 import { EmptyState } from '../components/EmptyState'
+import { ImportCampaignModal } from '../components/ImportCampaignModal'
 import { useApi, useDebounce } from '../lib/hooks'
 import { apiCall } from '../lib/api'
 import {
@@ -57,6 +59,7 @@ export function CampaignsPage() {
   const [searchQuery, setSearchQuery] = useState('')
   const [statusFilter, setStatusFilter] = useState<string>('all')
   const [showCreateModal, setShowCreateModal] = useState(false)
+  const [showImportModal, setShowImportModal] = useState(false)
   const debouncedSearch = useDebounce(searchQuery, 300)
 
   const campaigns = data?.campaigns ?? []
@@ -88,13 +91,22 @@ export function CampaignsPage() {
             Manage your screening campaigns across schools and clinics.
           </p>
         </div>
-        <button
-          onClick={() => setShowCreateModal(true)}
-          className="flex items-center gap-2 rounded-lg bg-blue-600 px-4 py-2.5 text-sm font-medium text-white shadow-sm transition-colors hover:bg-blue-700"
-        >
-          <Plus className="h-4 w-4" />
-          New Campaign
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => setShowImportModal(true)}
+            className="flex items-center gap-2 rounded-lg border border-gray-300 bg-white px-4 py-2.5 text-sm font-medium text-gray-700 shadow-sm transition-colors hover:bg-gray-50"
+          >
+            <FileSpreadsheet className="h-4 w-4 text-green-600" />
+            Import from Excel
+          </button>
+          <button
+            onClick={() => setShowCreateModal(true)}
+            className="flex items-center gap-2 rounded-lg bg-blue-600 px-4 py-2.5 text-sm font-medium text-white shadow-sm transition-colors hover:bg-blue-700"
+          >
+            <Plus className="h-4 w-4" />
+            New Campaign
+          </button>
+        </div>
       </div>
 
       {/* Filters */}
@@ -216,6 +228,17 @@ export function CampaignsPage() {
           onClose={() => setShowCreateModal(false)}
           onCreated={() => {
             setShowCreateModal(false)
+            refetch()
+          }}
+        />
+      )}
+
+      {/* Import Campaign from Excel Modal */}
+      {showImportModal && (
+        <ImportCampaignModal
+          onClose={() => setShowImportModal(false)}
+          onImported={() => {
+            setShowImportModal(false)
             refetch()
           }}
         />

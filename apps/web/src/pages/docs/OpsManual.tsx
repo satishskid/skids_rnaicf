@@ -47,6 +47,8 @@ import {
   Video,
   Keyboard,
   CircleDot,
+  FileCheck,
+  ClipboardList,
 } from 'lucide-react'
 import type { ReactNode } from 'react'
 
@@ -183,6 +185,12 @@ export function OpsManualPage() {
               { href: '#4d-categories', label: '4D Report Categories' },
               { href: '#analytics', label: 'Analytics & Reports' },
               { href: '#data-export', label: 'Data Export' },
+              { href: '#consent-management', label: 'Consent Management' },
+              { href: '#survey-instruments', label: 'Surveys & Instruments' },
+              { href: '#clinical-studies', label: 'Clinical Studies' },
+              { href: '#population-health', label: 'Population Health & Cohorts' },
+              { href: '#fhir-export', label: 'FHIR Interoperability' },
+              { href: '#parent-portal', label: 'Parent Portal' },
               { href: '#troubleshooting', label: 'Troubleshooting' },
             ].map((item) => (
               <a
@@ -817,7 +825,181 @@ export function OpsManualPage() {
           </div>
         </SectionCard>
 
-        {/* 10. Troubleshooting */}
+        {/* 10. Consent Management */}
+        <SectionCard id="consent-management" icon={<FileCheck className="w-5 h-5" />} title="Consent Management">
+          <p>
+            The platform includes a complete informed consent workflow for clinical research and screening programs.
+            Consent templates are created by administrators and used by field teams to capture guardian signatures.
+          </p>
+          <div className="space-y-3 mt-3">
+            <WorkflowStep number={1} title="Create Consent Template" description="Admins create consent form templates with rich HTML body text, version tracking, and multi-language support (English, Hindi, Marathi, etc.)." />
+            <WorkflowStep number={2} title="Capture Consent" description="Field teams present the consent form to guardians. Guardian name, relationship, and digital signature are captured. Witness signatures can be required." />
+            <WorkflowStep number={3} title="Track Status" description="Consent status is tracked per child per campaign: Consented, Declined, or Withdrawn. Screening can be blocked if consent is not recorded." />
+            <WorkflowStep number={4} title="Withdraw Consent" description="Guardians can withdraw consent at any time. The withdrawal date and reason are recorded. Associated data is flagged accordingly." />
+          </div>
+          <DataTable
+            compact
+            headers={['Feature', 'Description']}
+            rows={[
+              ['Template Versioning', 'Track consent form versions (1.0, 1.1, etc.) with change history'],
+              ['Multi-language', 'Support for English, Hindi, Marathi, and other regional languages'],
+              ['Digital Signatures', 'Base64 PNG signature capture from signature pad'],
+              ['Assent Support', 'Children above a configurable age can also sign assent forms'],
+              ['Audit Trail', 'Full audit trail with timestamps, IP address, and device info'],
+            ]}
+          />
+        </SectionCard>
+
+        {/* 11. Surveys & Instruments */}
+        <SectionCard id="survey-instruments" icon={<ClipboardList className="w-5 h-5" />} title="Surveys & Instruments">
+          <p>
+            A SurveyJS-powered instrument builder enables creation and deployment of standardized clinical questionnaires,
+            screening tools, and research surveys. Instruments are defined as JSON schemas with automatic scoring.
+          </p>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mt-3">
+            <div className="p-4 bg-blue-50 border border-blue-200 rounded-lg">
+              <h4 className="font-semibold text-blue-900 text-sm">Built-in Instruments</h4>
+              <ul className="text-xs text-blue-700 mt-2 space-y-1">
+                <li>M-CHAT-R/F (Modified Checklist for Autism in Toddlers)</li>
+                <li>PSC-35 (Pediatric Symptom Checklist)</li>
+                <li>SDQ (Strengths and Difficulties Questionnaire)</li>
+                <li>PHQ-A (Patient Health Questionnaire for Adolescents)</li>
+              </ul>
+            </div>
+            <div className="p-4 bg-green-50 border border-green-200 rounded-lg">
+              <h4 className="font-semibold text-green-900 text-sm">Custom Instruments</h4>
+              <ul className="text-xs text-green-700 mt-2 space-y-1">
+                <li>Visual JSON schema editor with preview</li>
+                <li>Custom scoring logic per instrument</li>
+                <li>Categories: screening, survey, questionnaire, CRF</li>
+                <li>Version management with draft/active/archived states</li>
+              </ul>
+            </div>
+          </div>
+          <DataTable
+            compact
+            headers={['Feature', 'Description']}
+            rows={[
+              ['Auto-scoring', 'Validated scoring algorithms for M-CHAT, PSC, SDQ, PHQ with subscale breakdown'],
+              ['Response Tracking', 'Track partial vs complete responses with timestamps'],
+              ['Respondent Types', 'Support for nurse, parent, teacher, and self-report instruments'],
+              ['Summary Analytics', 'Completion rates, score distributions, and item-level response statistics'],
+            ]}
+          />
+        </SectionCard>
+
+        {/* 12. Clinical Studies */}
+        <SectionCard id="clinical-studies" icon={<Microscope className="w-5 h-5" />} title="Clinical Studies">
+          <p>
+            The clinical study management system follows a REDCap-inspired data model for managing longitudinal
+            research studies, clinical trials, and cohort studies within the existing SKIDS infrastructure.
+          </p>
+          <div className="space-y-3 mt-3">
+            <WorkflowStep number={1} title="Create Study" description="Define the study with title, short code, type (observational, interventional, cohort, cross-sectional), PI details, IRB number, and target enrollment." />
+            <WorkflowStep number={2} title="Configure Arms" description="Add study arms (e.g., Control, Intervention) for randomized designs. Single-arm studies are also supported." />
+            <WorkflowStep number={3} title="Define Events" description="Create scheduled timepoints (Baseline, Week 4, Week 12) with day offsets and visit windows. Assign instruments to each event." />
+            <WorkflowStep number={4} title="Enroll Participants" description="Enroll children into the study with arm assignment and consent verification. Track enrollment against target." />
+            <WorkflowStep number={5} title="Track Progress" description="Monitor enrollment progress, event completion matrix, and data quality. Export complete study data as JSON." />
+          </div>
+          <DataTable
+            compact
+            headers={['Study Type', 'Description', 'Example']}
+            rows={[
+              ['Observational', 'Observe outcomes without intervention', 'Prevalence of dental caries in urban schools'],
+              ['Interventional', 'Test an intervention vs control', 'Vitamin D supplementation trial'],
+              ['Cohort', 'Follow a group over time', 'Growth trajectory of malnourished children'],
+              ['Cross-sectional', 'Snapshot at a single time point', 'Anemia prevalence across districts'],
+            ]}
+          />
+        </SectionCard>
+
+        {/* 13. Population Health & Cohorts */}
+        <SectionCard id="population-health" icon={<Activity className="w-5 h-5" />} title="Population Health & Cohorts">
+          <p>
+            Population health analytics provide epidemiological insights across campaigns, regions, and time periods.
+            Saved cohort definitions enable reusable population queries for research and public health reporting.
+          </p>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mt-3">
+            <div className="p-4 bg-indigo-50 border border-indigo-200 rounded-lg">
+              <h4 className="font-semibold text-indigo-900 text-sm">Cohort Builder</h4>
+              <ul className="text-xs text-indigo-700 mt-2 space-y-1">
+                <li>Filter by age, gender, grade, conditions</li>
+                <li>Save and reuse cohort definitions</li>
+                <li>Preview member count before saving</li>
+                <li>Compare two cohorts side-by-side</li>
+              </ul>
+            </div>
+            <div className="p-4 bg-emerald-50 border border-emerald-200 rounded-lg">
+              <h4 className="font-semibold text-emerald-900 text-sm">Epidemiological Stats</h4>
+              <ul className="text-xs text-emerald-700 mt-2 space-y-1">
+                <li>Point prevalence with 95% CI</li>
+                <li>Incidence rates per person-time</li>
+                <li>Odds ratio (OR) with confidence interval</li>
+                <li>Relative risk (RR) with p-value</li>
+              </ul>
+            </div>
+            <div className="p-4 bg-violet-50 border border-violet-200 rounded-lg">
+              <h4 className="font-semibold text-violet-900 text-sm">Dashboard Views</h4>
+              <ul className="text-xs text-violet-700 mt-2 space-y-1">
+                <li>Organization-wide prevalence heatmap</li>
+                <li>Campaign-level comparison tables</li>
+                <li>Demographic breakdown charts</li>
+                <li>Age distribution analysis</li>
+              </ul>
+            </div>
+          </div>
+        </SectionCard>
+
+        {/* 14. FHIR Interoperability */}
+        <SectionCard id="fhir-export" icon={<Globe className="w-5 h-5" />} title="FHIR Interoperability">
+          <p>
+            The platform supports FHIR R4 (Fast Healthcare Interoperability Resources) export for integration
+            with hospital information systems, national health registries, and research data repositories.
+          </p>
+          <DataTable
+            compact
+            headers={['FHIR Resource', 'Source Data', 'Use Case']}
+            rows={[
+              ['Patient', 'Child records', 'Share child demographics with hospital systems'],
+              ['Observation', 'Screening observations', 'Report screening findings in standardized format'],
+              ['Consent', 'Consent records', 'Communicate consent status to research registries'],
+              ['ResearchStudy', 'Study definitions', 'Register studies with clinical trial registries'],
+              ['Bundle', 'Campaign data', 'Export complete campaign as a single FHIR Bundle'],
+            ]}
+          />
+          <div className="bg-gray-900 text-gray-100 rounded-lg p-4 mt-3 text-xs font-mono overflow-x-auto">
+            <pre>{`GET /api/export/fhir/campaign/:code  → FHIR R4 Bundle (JSON)
+GET /api/export/fhir/patient/:childId → FHIR R4 Patient Bundle`}</pre>
+          </div>
+        </SectionCard>
+
+        {/* 15. Parent Portal */}
+        <SectionCard id="parent-portal" icon={<Users className="w-5 h-5" />} title="Parent Portal">
+          <p>
+            Parents can access their child's screening report through a secure portal using either a QR code
+            on the child's health card or a unique token-based link shared by the screening team.
+          </p>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mt-3">
+            <div className="p-4 bg-blue-50 border border-blue-200 rounded-lg">
+              <h4 className="font-semibold text-blue-900 text-sm">QR Code Access</h4>
+              <p className="text-xs text-blue-700 mt-1">
+                Each child has a unique QR code on their health card. Parents scan the QR code,
+                verify their child's date of birth, and view the complete screening report.
+              </p>
+              <p className="text-xs text-blue-600 mt-2 font-mono">URL: /parent</p>
+            </div>
+            <div className="p-4 bg-green-50 border border-green-200 rounded-lg">
+              <h4 className="font-semibold text-green-900 text-sm">Token-based Link</h4>
+              <p className="text-xs text-green-700 mt-1">
+                Screening teams can generate unique report links (valid for 30 days) that are shared
+                with parents via SMS or print. Parents verify DOB to access the report.
+              </p>
+              <p className="text-xs text-green-600 mt-2 font-mono">URL: /report/:token</p>
+            </div>
+          </div>
+        </SectionCard>
+
+        {/* 16. Troubleshooting */}
         <SectionCard
           id="troubleshooting"
           icon={<HelpCircle className="w-5 h-5" />}

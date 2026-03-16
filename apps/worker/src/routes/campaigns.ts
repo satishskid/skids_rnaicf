@@ -5,13 +5,38 @@ import { generateCampaignCode } from '@skids/shared'
 
 export const campaignRoutes = new Hono<{ Bindings: Bindings; Variables: Variables }>()
 
-// List all campaigns
+// List campaigns — authority users see only assigned campaigns, others see all
 campaignRoutes.get('/', async (c) => {
   const db = c.get('db')
-  const result = await db.execute(
-    'SELECT code, name, school_name, campaign_type, status, total_children, enabled_modules, created_at, city, state FROM campaigns ORDER BY created_at DESC'
-  )
-  const campaigns = result.rows.map(row => ({
+  const userRole = c.get('userRole')
+  const userId = c.get('userId')
+
+  let result
+
+  if (userRole === 'authority') {
+    // Authority users only see campaigns assigned to them
+    try {
+      result = await db.execute({
+        sql: `SELECT c.code, c.name, c.school_name, c.campaign_type, c.status,
+                     c.total_children, c.enabled_modules, c.created_at, c.city, c.state, c.reports_released
+              FROM campaigns c
+              INNER JOIN campaign_assignments ca ON ca.campaign_code = c.code
+              WHERE ca.user_id = ?
+              ORDER BY c.created_at DESC`,
+        args: [userId],
+      })
+    } catch {
+      // campaign_assignments table might not exist yet — return empty
+      result = { rows: [] }
+    }
+  } else {
+    // admin, ops_manager, doctor, nurse — see all campaigns
+    result = await db.execute(
+      'SELECT code, name, school_name, campaign_type, status, total_children, enabled_modules, created_at, city, state, reports_released FROM campaigns ORDER BY created_at DESC'
+    )
+  }
+
+  const campaigns = result.rows.map((row: any) => ({
     code: row.code,
     name: row.name,
     schoolName: row.school_name,
@@ -22,6 +47,7 @@ campaignRoutes.get('/', async (c) => {
     createdAt: row.created_at,
     city: row.city,
     state: row.state,
+    reportsReleased: !!row.reports_released,
   }))
   return c.json({ campaigns })
 })
@@ -55,6 +81,7 @@ campaignRoutes.get('/:code', async (c) => {
     district: row.district,
     address: row.address,
     pincode: row.pincode,
+    reportsReleased: !!row.reports_released,
   })
 })
 
@@ -306,6 +333,40 @@ campaignRoutes.get('/:code/absent', async (c) => {
   }))
 
   return c.json({ absences })
+})
+
+// Toggle reports_released flag (admin/ops_manager)
+campaignRoutes.post('/:code/release-reports', async (c) => {
+  try {
+    const db = c.get('db')
+    const code = c.req.param('code')
+    const userRole = c.get('userRole')
+
+    if (userRole !== 'admin' && userRole !== 'ops_manager') {
+      return c.json({ error: 'Admin or ops_manager access required' }, 403)
+    }
+
+    // Ensure column exists
+    try {
+      await db.execute({ sql: 'ALTER TABLE campaigns ADD COLUMN reports_released INTEGER DEFAULT 0', args: [] })
+    } catch { /* already exists */ }
+
+    const body = await c.req.json<{ released: boolean }>().catch(() => ({ released: true }))
+    const released = body.released ? 1 : 0
+
+    await db.execute({
+      sql: 'UPDATE campaigns SET reports_released = ? WHERE code = ?',
+      args: [released, code],
+    })
+
+    return c.json({
+      code,
+      reportsReleased: !!released,
+      message: released ? 'Reports released — parents can now access via QR code' : 'Reports access revoked',
+    })
+  } catch (err) {
+    return c.json({ error: 'Failed to release reports', detail: String(err) }, 500)
+  }
 })
 
 // Archive campaign

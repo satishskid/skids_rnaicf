@@ -1,0 +1,18 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "web",
+      "runtimeExecutable": "pnpm",
+      "runtimeArgs": ["-F", "@skids/web", "dev", "--port", "5199"],
+      "port": 5199,
+      "autoPort": false
+    },
+    {
+      "name": "mobile-web",
+      "runtimeExecutable": "pnpm",
+      "runtimeArgs": ["-F", "@skids/mobile", "start", "--web", "--port", "8082"],
+      "port": 8082
+    }
+  ]
+}

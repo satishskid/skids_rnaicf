@@ -14,12 +14,18 @@ import { AuthorityDashboardPage } from './pages/AuthorityDashboard'
 import { FourDReportPage } from './pages/FourDReport'
 import { ChildReportPage } from './pages/ChildReport'
 import { ParentReportPage } from './pages/ParentReport'
+import { ParentPortalPage } from './pages/ParentPortal'
 import { DocsHubPage } from './pages/docs/DocsHub'
 import { QuickStartPage } from './pages/docs/QuickStart'
 import { FieldGuidePage } from './pages/docs/FieldGuide'
 import { OpsManualPage } from './pages/docs/OpsManual'
 import { ClinicalReferencePage } from './pages/docs/ClinicalReference'
 import { TechManualPage } from './pages/docs/TechManual'
+import { ConsentManagementPage } from './pages/ConsentManagement'
+import { InstrumentBuilderPage } from './pages/InstrumentBuilder'
+import { StudiesPage } from './pages/Studies'
+import { StudyDetailPage } from './pages/StudyDetail'
+import { PopulationHealthPage } from './pages/PopulationHealth'
 
 export function App() {
   return (
@@ -29,6 +35,7 @@ export function App() {
           {/* Public routes */}
           <Route path="/login" element={<LoginPage />} />
           <Route path="/report/:token" element={<ParentReportPage />} />
+          <Route path="/parent" element={<ParentPortalPage />} />
 
           {/* Protected routes with sidebar layout */}
           <Route element={<Layout />}>
@@ -41,6 +48,11 @@ export function App() {
             <Route path="/authority" element={<AuthorityDashboardPage />} />
             <Route path="/analytics" element={<AnalyticsPage />} />
             <Route path="/admin/users" element={<UserManagementPage />} />
+            <Route path="/consents" element={<ConsentManagementPage />} />
+            <Route path="/instruments" element={<InstrumentBuilderPage />} />
+            <Route path="/studies" element={<StudiesPage />} />
+            <Route path="/studies/:id" element={<StudyDetailPage />} />
+            <Route path="/population-health" element={<PopulationHealthPage />} />
             <Route path="/settings" element={<SettingsPage />} />
           </Route>
 

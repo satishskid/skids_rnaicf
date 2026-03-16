@@ -19,13 +19,19 @@ export function UserManagementPage() {
 
   // Modal state
   const [modal, setModal] = useState<{
-    type: 'set-pin' | 'reset-pin' | 'reset-password' | 'create-user' | null
+    type: 'set-pin' | 'reset-pin' | 'reset-password' | 'create-user' | 'assign-campaigns' | null
     user?: AdminUser
   }>({ type: null })
   const [pinValue, setPinValue] = useState('')
   const [passwordValue, setPasswordValue] = useState('')
   const [actionLoading, setActionLoading] = useState(false)
   const [actionMessage, setActionMessage] = useState('')
+
+  // Campaign assignment state
+  const [allCampaigns, setAllCampaigns] = useState<Array<{ code: string; name: string; status: string }>>([])
+  const [assignedCodes, setAssignedCodes] = useState<Set<string>>(new Set())
+  const [assignmentMap, setAssignmentMap] = useState<Record<string, string>>({}) // campaignCode → assignmentId
+  const [assignLoading, setAssignLoading] = useState<string | null>(null) // campaignCode being toggled
 
   // Create user form
   const [newUser, setNewUser] = useState({
@@ -144,6 +150,66 @@ export function UserManagementPage() {
       setActionMessage(e instanceof Error ? e.message : 'Failed to create user')
     } finally {
       setActionLoading(false)
+    }
+  }
+
+  const openAssignModal = async (user: AdminUser) => {
+    setModal({ type: 'assign-campaigns', user })
+    setActionMessage('')
+    try {
+      // Fetch all campaigns and user's current assignments in parallel
+      const [campaignsRes, assignmentsRes] = await Promise.all([
+        apiCall<{ campaigns: Array<{ code: string; name: string; status: string }> }>('/api/campaigns'),
+        apiCall<{ assignments: Array<{ id: string; campaignCode: string }> }>(
+          `/api/campaign-assignments?userId=${user.id}`
+        ),
+      ])
+      setAllCampaigns(campaignsRes.campaigns)
+      const codes = new Set(assignmentsRes.assignments.map((a) => a.campaignCode))
+      setAssignedCodes(codes)
+      const idMap: Record<string, string> = {}
+      assignmentsRes.assignments.forEach((a) => {
+        idMap[a.campaignCode] = a.id
+      })
+      setAssignmentMap(idMap)
+    } catch (e) {
+      setActionMessage(e instanceof Error ? e.message : 'Failed to load campaigns')
+    }
+  }
+
+  const toggleCampaignAssignment = async (campaignCode: string) => {
+    if (!modal.user) return
+    setAssignLoading(campaignCode)
+    try {
+      if (assignedCodes.has(campaignCode)) {
+        // Remove assignment
+        const assignmentId = assignmentMap[campaignCode]
+        if (assignmentId) {
+          await apiCall(`/api/campaign-assignments/${assignmentId}`, { method: 'DELETE' })
+        }
+        setAssignedCodes((prev) => {
+          const next = new Set(prev)
+          next.delete(campaignCode)
+          return next
+        })
+        setAssignmentMap((prev) => {
+          const next = { ...prev }
+          delete next[campaignCode]
+          return next
+        })
+      } else {
+        // Add assignment
+        const res = await apiCall<{ id: string }>('/api/campaign-assignments', {
+          method: 'POST',
+          body: JSON.stringify({ userId: modal.user.id, campaignCode }),
+        })
+        setAssignedCodes((prev) => new Set([...prev, campaignCode]))
+        setAssignmentMap((prev) => ({ ...prev, [campaignCode]: res.id }))
+      }
+    } catch (e) {
+      setActionMessage(e instanceof Error ? e.message : 'Failed to update assignment')
+    } finally {
+      setAssignLoading(null)
     }
   }
 
@@ -282,6 +348,12 @@ export function UserManagementPage() {
                         className="rounded-md bg-gray-50 px-2.5 py-1.5 text-xs font-medium text-gray-700 hover:bg-gray-100 transition-colors"
                       >
                         Reset Password
+                      </button>
+                      <button
+                        onClick={() => openAssignModal(u)}
+                        className="rounded-md bg-indigo-50 px-2.5 py-1.5 text-xs font-medium text-indigo-700 hover:bg-indigo-100 transition-colors"
+                      >
+                        Campaigns
                       </button>
                     </div>
                   </td>
@@ -469,6 +541,72 @@ export function UserManagementPage() {
                     className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-50"
                   >
                     {actionLoading ? 'Creating...' : 'Create User'}
+                  </button>
+                </div>
+              </>
+            )}
+
+            {/* Assign Campaigns */}
+            {modal.type === 'assign-campaigns' && (
+              <>
+                <h2 className="text-lg font-bold text-gray-900">
+                  Campaign Access &mdash; {modal.user?.name}
+                </h2>
+                <p className="mt-1 text-sm text-gray-500">
+                  Select which campaigns this {modal.user?.role} can access.
+                  {modal.user?.role === 'authority' && ' Authority users will only see assigned campaigns.'}
+                </p>
+                {actionMessage && (
+                  <p className="mt-2 text-sm text-red-600">{actionMessage}</p>
+                )}
+                <div className="mt-4 max-h-72 overflow-y-auto space-y-1 border border-gray-200 rounded-lg p-2">
+                  {allCampaigns.length === 0 ? (
+                    <p className="py-4 text-center text-sm text-gray-400">Loading campaigns...</p>
+                  ) : (
+                    allCampaigns.map((c) => (
+                      <label
+                        key={c.code}
+                        className={`flex items-center gap-3 p-2.5 rounded-lg cursor-pointer transition-colors ${
+                          assignedCodes.has(c.code) ? 'bg-indigo-50' : 'hover:bg-gray-50'
+                        } ${assignLoading === c.code ? 'opacity-50' : ''}`}
+                      >
+                        <input
+                          type="checkbox"
+                          checked={assignedCodes.has(c.code)}
+                          onChange={() => toggleCampaignAssignment(c.code)}
+                          disabled={assignLoading === c.code}
+                          className="rounded border-gray-300 text-indigo-600 focus:ring-indigo-500"
+                        />
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm font-medium text-gray-900 truncate">
+                            {c.name || c.code}
+                          </p>
+                          <p className="text-xs text-gray-500">{c.code}</p>
+                        </div>
+                        <span
+                          className={`shrink-0 inline-flex rounded-full px-2 py-0.5 text-[10px] font-medium ${
+                            c.status === 'active'
+                              ? 'bg-green-100 text-green-700'
+                              : c.status === 'completed'
+                                ? 'bg-blue-100 text-blue-700'
+                                : 'bg-gray-100 text-gray-600'
+                          }`}
+                        >
+                          {c.status}
+                        </span>
+                      </label>
+                    ))
+                  )}
+                </div>
+                <div className="mt-3 text-xs text-gray-500">
+                  {assignedCodes.size} campaign{assignedCodes.size !== 1 ? 's' : ''} assigned
+                </div>
+                <div className="mt-4 flex justify-end">
+                  <button
+                    onClick={() => setModal({ type: null })}
+                    className="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-semibold text-white hover:bg-indigo-700"
+                  >
+                    Done
                   </button>
                 </div>
               </>

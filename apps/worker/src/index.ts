@@ -24,9 +24,16 @@ import { reportTokenRoutes } from './routes/report-tokens'
 import { pinAuthRoutes } from './routes/pin-auth'
 import { educationRoutes } from './routes/education'
 import { accountRoutes } from './routes/account'
+import { campaignAssignmentRoutes } from './routes/campaign-assignments'
+import { parentPortalRoutes } from './routes/parent-portal'
+import { consentRoutes } from './routes/consents'
+import { instrumentRoutes } from './routes/instruments'
+import { studyRoutes } from './routes/studies'
+import { cohortRoutes } from './routes/cohorts'
 import { createTursoClient } from '@skids/db'
 import { createAuth } from './auth'
 import { authMiddleware, requireRole } from './middleware/auth'
+import { firebaseAuthMiddleware } from './middleware/firebase-auth'
 import type { Client } from '@libsql/client'
 
 // Cloudflare Workers bindings
@@ -48,7 +55,8 @@ export type Bindings = {
   R2_BUCKET: R2Bucket
   // AyuSynk webhook
   AYUSYNC_WEBHOOK_SECRET: string
-  // AI: Ai              // uncomment when ready
+  AI: Ai                  // Cloudflare Workers AI (free, no API key needed)
+  GEMINI_API_KEY: string  // Optional: Gemini Flash as additional provider
 }
 
 // Variables set per-request
@@ -70,6 +78,9 @@ app.use('*', cors({
     const allowed = [
       'https://skids-ai.vercel.app',
       'https://skids-web.pages.dev',
+      'https://skids-ops.pages.dev',
+      'https://parent.skids.clinic',
+      'https://skidsparent.pages.dev',
     ]
     if (allowed.includes(origin)) return origin
     // Allow mobile (no origin) and Expo dev
@@ -128,6 +139,13 @@ app.use('/api/admin', requireRole('admin'))
 app.use('/api/admin/*', requireRole('admin'))
 app.route('/api/admin', adminRoutes)
 
+// Campaign assignments — admin/ops_manager only (authority scoping)
+app.use('/api/campaign-assignments', authMiddleware)
+app.use('/api/campaign-assignments/*', authMiddleware)
+app.use('/api/campaign-assignments', requireRole('admin', 'ops_manager'))
+app.use('/api/campaign-assignments/*', requireRole('admin', 'ops_manager'))
+app.route('/api/campaign-assignments', campaignAssignmentRoutes)
+
 // Training routes — require auth
 app.use('/api/training', authMiddleware)
 app.use('/api/training/*', authMiddleware)
@@ -175,9 +193,24 @@ app.use('/api/screening-events', authMiddleware)
 app.use('/api/screening-events/*', authMiddleware)
 app.route('/api/screening-events', screeningEventsRoutes)
 
-// Report tokens — POST requires auth, GET/:token is public (parent access)
+// Report tokens — POST root + bulk-release + campaign listing require auth
+// GET /api/report-tokens/:token is public (parent access via 12-char token)
+// POST /api/report-tokens/:token/verify is public (parent DOB verification)
 app.post('/api/report-tokens', authMiddleware)
+app.post('/api/report-tokens/bulk-release', authMiddleware)
+app.get('/api/report-tokens/campaign/*', authMiddleware)
 app.route('/api/report-tokens', reportTokenRoutes)
+
+// Parent portal — mixed auth:
+// POST /generate-qr requires Better Auth (admin backfill migration)
+// POST /lookup, /verify are public (QR code + DOB verification)
+// POST /claim-child, GET /my-children, /child/* require Firebase auth (parent portal)
+app.post('/api/parent-portal/generate-qr', authMiddleware)
+app.post('/api/parent-portal/generate-qr', requireRole('admin', 'ops_manager'))
+app.post('/api/parent-portal/claim-child', firebaseAuthMiddleware)
+app.get('/api/parent-portal/my-children', firebaseAuthMiddleware)
+app.get('/api/parent-portal/child/*', firebaseAuthMiddleware)
+app.route('/api/parent-portal', parentPortalRoutes)
 
 // Self-service account routes — require auth (any role)
 app.use('/api/account', authMiddleware)
@@ -187,11 +220,32 @@ app.route('/api/account', accountRoutes)
 // Education — public endpoint (used by parent report)
 app.route('/api/education', educationRoutes)
 
+// ── Clinical Research Platform ──────────────────
+// Consent management — require auth
+app.use('/api/consents', authMiddleware)
+app.use('/api/consents/*', authMiddleware)
+app.route('/api/consents', consentRoutes)
+
+// Instruments / Surveys — require auth
+app.use('/api/instruments', authMiddleware)
+app.use('/api/instruments/*', authMiddleware)
+app.route('/api/instruments', instrumentRoutes)
+
+// Clinical Studies — require auth
+app.use('/api/studies', authMiddleware)
+app.use('/api/studies/*', authMiddleware)
+app.route('/api/studies', studyRoutes)
+
+// Cohort definitions & population health — require auth
+app.use('/api/cohorts', authMiddleware)
+app.use('/api/cohorts/*', authMiddleware)
+app.route('/api/cohorts', cohortRoutes)
+
 // Root
 app.get('/', (c) => {
   return c.json({
     name: 'SKIDS Screen API',
-    version: '3.0.0',
+    version: '3.1.0',
     stack: 'Hono + Turso + Better Auth on Cloudflare Workers',
     docs: '/api/health',
   })

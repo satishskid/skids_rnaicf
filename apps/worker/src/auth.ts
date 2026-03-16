@@ -152,6 +152,9 @@ export function createAuth(env: Bindings) {
       'http://localhost:8788',
       'https://skids-ai.vercel.app',
       'https://skids-web.pages.dev',
+      'https://skids-ops.pages.dev',
+      'https://parent.skids.clinic',
+      'https://skidsparent.pages.dev',
       'skids-screen://',
     ],
   })

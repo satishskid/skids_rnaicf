@@ -99,6 +99,100 @@ async function generatePresignedUrl(
 
 // ── POST /api/r2/presign ──
 
+// ── GET /api/r2/apk — Authenticated APK download ──
+
+r2Routes.get('/apk', async (c) => {
+  const userId = c.get('userId')
+  if (!userId) {
+    return c.json({ error: 'Authentication required' }, 401)
+  }
+
+  try {
+    const bucket = c.env.R2_BUCKET
+    if (!bucket) {
+      return c.json({ error: 'R2 bucket not configured' }, 500)
+    }
+
+    const obj = await bucket.get('apk/SKIDS-Screen-latest.apk')
+    if (!obj) {
+      return c.json({ error: 'APK not found' }, 404)
+    }
+
+    const headers = new Headers()
+    headers.set('Content-Type', 'application/vnd.android.package-archive')
+    headers.set('Content-Disposition', 'attachment; filename="SKIDS-Screen-3.1.0.apk"')
+    headers.set('Content-Length', obj.size.toString())
+    headers.set('Cache-Control', 'no-cache')
+
+    return new Response(obj.body, { headers })
+  } catch (err) {
+    console.error('APK download error:', err)
+    return c.json({ error: 'Download failed' }, 500)
+  }
+})
+
+// ── GET /api/r2/apk/info — APK metadata (version, size, date) ──
+
+r2Routes.get('/apk/info', async (c) => {
+  try {
+    const bucket = c.env.R2_BUCKET
+    if (!bucket) {
+      return c.json({ error: 'R2 bucket not configured' }, 500)
+    }
+
+    const obj = await bucket.head('apk/SKIDS-Screen-latest.apk')
+    if (!obj) {
+      return c.json({ available: false })
+    }
+
+    return c.json({
+      available: true,
+      size: obj.size,
+      sizeHuman: `${Math.round(obj.size / 1024 / 1024)} MB`,
+      uploaded: obj.uploaded.toISOString(),
+      etag: obj.etag,
+    })
+  } catch {
+    return c.json({ available: false })
+  }
+})
+
+// ── POST /api/r2/apk/upload — Admin uploads new APK version ──
+
+r2Routes.post('/apk/upload', async (c) => {
+  const userRole = c.get('userRole')
+  if (!userRole || !['admin', 'ops_manager'].includes(userRole)) {
+    return c.json({ error: 'Admin or ops_manager role required' }, 403)
+  }
+
+  try {
+    const bucket = c.env.R2_BUCKET
+    if (!bucket) {
+      return c.json({ error: 'R2 bucket not configured' }, 500)
+    }
+
+    const body = await c.req.arrayBuffer()
+    if (body.byteLength < 1000) {
+      return c.json({ error: 'Invalid APK file' }, 400)
+    }
+
+    await bucket.put('apk/SKIDS-Screen-latest.apk', body, {
+      httpMetadata: { contentType: 'application/vnd.android.package-archive' },
+    })
+
+    return c.json({
+      ok: true,
+      size: body.byteLength,
+      sizeHuman: `${Math.round(body.byteLength / 1024 / 1024)} MB`,
+    })
+  } catch (err) {
+    console.error('APK upload error:', err)
+    return c.json({ error: 'Upload failed' }, 500)
+  }
+})
+
+// ── POST /api/r2/presign ──
+
 r2Routes.post('/presign', async (c) => {
   try {
     const accessKeyId = c.env.CLOUDFLARE_R2_ACCESS_KEY_ID

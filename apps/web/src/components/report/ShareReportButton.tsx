@@ -1,27 +1,31 @@
 /**
  * Share Report Button — Generates a parent report token and displays shareable link + QR code.
  * Uses the report-tokens API to create a time-limited token.
- * QR code rendered as inline SVG (no external library needed).
+ * QR code via public API (zero-dependency, real scannable QR).
  */
 
 import { useState } from 'react'
-import { Share2, Copy, Check, X, Loader2 } from 'lucide-react'
+import { Share2, Copy, Check, X, Loader2, AlertCircle } from 'lucide-react'
 import { apiCall } from '../../lib/api'
 
 interface ShareReportButtonProps {
   childId: string
   campaignCode: string
   childName: string
+  /** Optional: smaller button variant for table rows */
+  compact?: boolean
 }
 
-export function ShareReportButton({ childId, campaignCode, childName }: ShareReportButtonProps) {
+export function ShareReportButton({ childId, campaignCode, childName, compact }: ShareReportButtonProps) {
   const [isOpen, setIsOpen] = useState(false)
   const [loading, setLoading] = useState(false)
   const [token, setToken] = useState<string | null>(null)
   const [copied, setCopied] = useState(false)
+  const [error, setError] = useState<string | null>(null)
 
   async function generateLink() {
     setLoading(true)
+    setError(null)
     try {
       const result = await apiCall<{ token: string; expiresAt: string }>('/api/report-tokens', {
         method: 'POST',
@@ -29,8 +33,8 @@ export function ShareReportButton({ childId, campaignCode, childName }: ShareRep
       })
       setToken(result.token)
       setIsOpen(true)
-    } catch {
-      // Silently fail
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to generate share link')
     } finally {
       setLoading(false)
     }
@@ -47,8 +51,21 @@ export function ShareReportButton({ childId, campaignCode, childName }: ShareRep
       setCopied(true)
       setTimeout(() => setCopied(false), 2000)
     } catch {
-      // Clipboard API not available
+      // Clipboard API not available — fallback
+      const textArea = document.createElement('textarea')
+      textArea.value = getReportUrl()
+      document.body.appendChild(textArea)
+      textArea.select()
+      document.execCommand('copy')
+      document.body.removeChild(textArea)
+      setCopied(true)
+      setTimeout(() => setCopied(false), 2000)
     }
+  }
+
+  function getWhatsAppUrl() {
+    const text = `Health screening report for ${childName}: ${getReportUrl()}`
+    return `https://wa.me/?text=${encodeURIComponent(text)}`
   }
 
   return (
@@ -56,11 +73,22 @@ export function ShareReportButton({ childId, campaignCode, childName }: ShareRep
       <button
         onClick={generateLink}
         disabled={loading}
-        className="flex items-center gap-1.5 rounded-lg border border-gray-300 px-3 py-1.5 text-xs font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50"
+        className={
+          compact
+            ? 'flex items-center gap-1 rounded-md px-2 py-1 text-xs text-indigo-600 hover:bg-indigo-50 disabled:opacity-50'
+            : 'flex items-center gap-1.5 rounded-lg border border-gray-300 px-3 py-1.5 text-xs font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50'
+        }
+        title="Share report with parent"
       >
         {loading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Share2 className="h-3.5 w-3.5" />}
-        Share with Parent
+        {!compact && 'Share with Parent'}
       </button>
+
+      {error && !isOpen && (
+        <span className="ml-2 text-xs text-red-500 flex items-center gap-1">
+          <AlertCircle className="h-3 w-3" /> {error}
+        </span>
+      )}
 
       {isOpen && token && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
@@ -74,13 +102,20 @@ export function ShareReportButton({ childId, campaignCode, childName }: ShareRep
 
             <div className="p-5 space-y-4">
               <p className="text-xs text-gray-500">
-                Share this link with {childName}'s parent/guardian. The link is valid for 30 days and requires no login.
+                Share this link with <span className="font-medium text-gray-700">{childName}</span>'s parent/guardian.
+                Valid for 30 days, no login required.
               </p>
 
-              {/* QR Code placeholder using SVG pattern */}
+              {/* Real QR Code via public API */}
               <div className="flex justify-center">
                 <div className="w-48 h-48 bg-white border border-gray-200 rounded-lg flex items-center justify-center p-2">
-                  <QRCodeSVG value={getReportUrl()} size={176} />
+                  <img
+                    src={`https://api.qrserver.com/v1/create-qr-code/?size=176x176&data=${encodeURIComponent(getReportUrl())}&format=svg`}
+                    alt={`QR code for ${childName}'s report`}
+                    width={176}
+                    height={176}
+                    className="rounded"
+                  />
                 </div>
               </div>
 
@@ -90,6 +125,7 @@ export function ShareReportButton({ childId, campaignCode, childName }: ShareRep
                   readOnly
                   value={getReportUrl()}
                   className="flex-1 rounded-lg border border-gray-300 px-3 py-2 text-xs text-gray-600 bg-gray-50"
+                  onClick={(e) => (e.target as HTMLInputElement).select()}
                 />
                 <button
                   onClick={copyLink}
@@ -102,6 +138,19 @@ export function ShareReportButton({ childId, campaignCode, childName }: ShareRep
                 </button>
               </div>
 
+              {/* WhatsApp share */}
+              <a
+                href={getWhatsAppUrl()}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="flex w-full items-center justify-center gap-2 rounded-lg bg-green-500 px-3 py-2.5 text-xs font-medium text-white hover:bg-green-600 transition-colors"
+              >
+                <svg className="h-4 w-4" viewBox="0 0 24 24" fill="currentColor">
+                  <path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z"/>
+                </svg>
+                Share via WhatsApp
+              </a>
+
               <p className="text-[10px] text-gray-400 text-center">
                 Scan the QR code or share the link. No login required.
               </p>
@@ -110,66 +159,5 @@ export function ShareReportButton({ childId, campaignCode, childName }: ShareRep
         </div>
       )}
     </>
-  )
-}
-
-/**
- * Minimal QR Code SVG renderer.
- * Uses a simple bit matrix approach for generating QR-like visual codes.
- * For a production app, use a proper QR library — this creates a scannable-looking visual.
- */
-function QRCodeSVG({ value, size }: { value: string; size: number }) {
-  // Generate a deterministic bit matrix from the value string
-  const gridSize = 25
-  const cellSize = size / gridSize
-  const cells: boolean[][] = []
-
-  // Simple hash-based pattern generation (visually represents the data)
-  let hash = 0
-  for (let i = 0; i < value.length; i++) {
-    hash = ((hash << 5) - hash + value.charCodeAt(i)) | 0
-  }
-
-  for (let y = 0; y < gridSize; y++) {
-    cells[y] = []
-    for (let x = 0; x < gridSize; x++) {
-      // Corner markers (fixed)
-      const isTopLeft = x < 7 && y < 7
-      const isTopRight = x >= gridSize - 7 && y < 7
-      const isBottomLeft = x < 7 && y >= gridSize - 7
-
-      if (isTopLeft || isTopRight || isBottomLeft) {
-        // Standard QR corner pattern
-        const lx = isTopRight ? x - (gridSize - 7) : x
-        const ly = isBottomLeft ? y - (gridSize - 7) : y
-        const isOuter = lx === 0 || lx === 6 || ly === 0 || ly === 6
-        const isInner = lx >= 2 && lx <= 4 && ly >= 2 && ly <= 4
-        cells[y][x] = isOuter || isInner
-      } else {
-        // Data pattern based on hash
-        const seed = (hash * (x + 1) * (y + 1) + x * 31 + y * 37) | 0
-        cells[y][x] = (seed & 3) === 0 || (seed & 7) === 1
-      }
-    }
-  }
-
-  return (
-    <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`}>
-      <rect width={size} height={size} fill="white" />
-      {cells.map((row, y) =>
-        row.map((cell, x) =>
-          cell ? (
-            <rect
-              key={`${x}-${y}`}
-              x={x * cellSize}
-              y={y * cellSize}
-              width={cellSize}
-              height={cellSize}
-              fill="black"
-            />
-          ) : null,
-        ),
-      )}
-    </svg>
   )
 }

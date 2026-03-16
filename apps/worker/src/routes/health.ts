@@ -26,7 +26,7 @@ healthRoutes.get('/', async (c) => {
 
   return c.json({
     status: dbOk ? 'healthy' : 'degraded',
-    version: '3.0.0',
+    version: '3.1.0',
     timestamp: new Date().toISOString(),
     services: {
       api: 'ok',
@@ -105,7 +105,7 @@ healthRoutes.get('/detailed', async (c) => {
 
   return c.json({
     status: isHealthy ? 'healthy' : 'degraded',
-    version: '3.0.0',
+    version: '3.1.0',
     environment: c.env.ENVIRONMENT || 'production',
     timestamp: new Date().toISOString(),
     checks,

@@ -27,6 +27,6 @@ bucket_name = "skids-media"
 # AyuSynk webhook secret (optional):
 #   wrangler secret put AYUSYNC_WEBHOOK_SECRET
 
-# AI Gateway (uncomment when ready)
-# [ai]
-# binding = "AI"
+# Cloudflare Workers AI (free, no API key needed)
+[ai]
+binding = "AI"

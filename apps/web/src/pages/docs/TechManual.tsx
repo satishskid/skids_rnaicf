@@ -82,6 +82,31 @@ const API_ROUTES = [
   { method: 'GET', path: '/api/admin/users', description: 'List platform users (admin only)' },
   { method: 'POST', path: '/api/admin/password-reset', description: 'Reset user password (admin only)' },
   { method: 'ALL', path: '/api/auth/*', description: 'Better Auth endpoints (login, session, etc.)' },
+  // ── Consent Management ──
+  { method: 'GET', path: '/api/consent-templates', description: 'List consent templates for organization' },
+  { method: 'POST', path: '/api/consent-templates', description: 'Create a consent template (admin/ops_manager)' },
+  { method: 'POST', path: '/api/consents', description: 'Record consent with guardian signature' },
+  { method: 'GET', path: '/api/consents', description: 'Check consent status by child/campaign' },
+  { method: 'PUT', path: '/api/consents/:id/withdraw', description: 'Withdraw consent' },
+  // ── Survey Instruments ──
+  { method: 'GET', path: '/api/instruments', description: 'List survey instruments with category filter' },
+  { method: 'POST', path: '/api/instruments', description: 'Create SurveyJS instrument definition' },
+  { method: 'POST', path: '/api/instrument-responses', description: 'Submit instrument response with auto-scoring' },
+  // ── Study Management ──
+  { method: 'GET', path: '/api/studies', description: 'List clinical studies for organization' },
+  { method: 'POST', path: '/api/studies', description: 'Create a clinical study (admin/ops_manager)' },
+  { method: 'POST', path: '/api/studies/:id/enroll', description: 'Enroll child in study with arm assignment' },
+  { method: 'GET', path: '/api/studies/:id/participants', description: 'List study participants with status' },
+  { method: 'GET', path: '/api/studies/:id/export', description: 'Export full study data (JSON)' },
+  // ── Cohorts & Population Health ──
+  { method: 'GET', path: '/api/cohorts', description: 'List saved cohort definitions' },
+  { method: 'POST', path: '/api/cohorts', description: 'Save cohort definition with filter criteria' },
+  { method: 'GET', path: '/api/cohorts/:id/analytics', description: 'Run epidemiological analytics on cohort' },
+  { method: 'GET', path: '/api/population-health/dashboard', description: 'Organization-wide population health dashboard' },
+  // ── FHIR Export & Search ──
+  { method: 'GET', path: '/api/export/fhir/campaign/:code', description: 'Export campaign as FHIR R4 Bundle' },
+  { method: 'GET', path: '/api/export/fhir/patient/:childId', description: 'Export patient as FHIR R4 Bundle' },
+  { method: 'GET', path: '/api/children/search', description: 'Search children across all campaigns' },
 ]
 
 // ── Database Tables ──
@@ -96,6 +121,17 @@ const DB_TABLES = [
   { name: 'absences', columns: 'id, childId, campaignCode, date, reason', description: 'Child absence records during screening' },
   { name: 'training_samples', columns: 'id, observationId, moduleType, label, verified, exportedAt', description: 'Verified samples for AI model training' },
   { name: 'ayusync_reports', columns: 'id, campaignCode, childId, reportData, receivedAt, status', description: 'External AyuSync integration reports' },
+  // ── Clinical Research Tables ──
+  { name: 'consent_templates', columns: 'id, org_code, title, version, language, body_html, status, created_by', description: 'Informed consent form templates' },
+  { name: 'consents', columns: 'id, template_id, child_id, guardian_name, guardian_signature, consented, withdrawn_at', description: 'Individual consent records with e-signatures' },
+  { name: 'instruments', columns: 'id, org_code, name, category, schema_json, scoring_logic, status', description: 'SurveyJS-based survey/instrument definitions' },
+  { name: 'instrument_responses', columns: 'id, instrument_id, child_id, response_json, score_json, completed', description: 'Survey response submissions with computed scores' },
+  { name: 'studies', columns: 'id, org_code, title, short_code, study_type, status, pi_name, irb_number', description: 'Clinical studies / trials (REDCap-inspired)' },
+  { name: 'study_arms', columns: 'id, study_id, name, description, sort_order', description: 'Study arms (e.g., control vs intervention)' },
+  { name: 'study_events', columns: 'id, study_id, name, day_offset, window_before, window_after', description: 'Scheduled study timepoints with visit windows' },
+  { name: 'study_event_instruments', columns: 'id, study_event_id, instrument_id, required', description: 'Instruments collected at each study event' },
+  { name: 'study_enrollments', columns: 'id, study_id, child_id, arm_id, consent_id, status', description: 'Child enrollment in studies with arm assignment' },
+  { name: 'cohort_definitions', columns: 'id, org_code, name, filter_json, created_by', description: 'Saved cohort filter definitions for reusable queries' },
 ]
 
 // ── Environment Variables ──
@@ -270,7 +306,11 @@ export function TechManualPage() {
 |   |   |   |   |-- r2.ts
 |   |   |   |   |-- admin.ts
 |   |   |   |   |-- ayusync.ts
-|   |   |   |   \`-- auth.ts
+|   |   |   |   |-- auth.ts
+|   |   |   |   |-- consents.ts
+|   |   |   |   |-- instruments.ts
+|   |   |   |   |-- studies.ts
+|   |   |   |   \`-- cohorts.ts
 |   |   |   |-- middleware/    # Auth, CORS, logging
 |   |   |   \`-- index.ts       # Hono app entry
 |   |   |-- wrangler.toml      # Cloudflare config
@@ -300,7 +340,9 @@ export function TechManualPage() {
 |   |       |-- four-d-mapping.ts  # 52 conditions, 4D report
 |   |       |-- quality-scoring.ts # Observation quality
 |   |       |-- screening-lifecycle.ts  # Status computation
-|   |       \`-- campaigns.ts   # Templates, sync, codes
+|   |       |-- campaigns.ts   # Templates, sync, codes
+|   |       |-- instrument-scoring.ts  # Survey scoring engine
+|   |       \`-- fhir-adapter.ts       # FHIR R4 adapters
 |   |
 |   \`-- db/                    # Database package
 |       \`-- src/
@@ -429,6 +471,16 @@ export function TechManualPage() {
             description="Campaign templates, sync payload builders, and code generation utilities. Handles offline sync payloads and campaign initialization."
             exports={['CAMPAIGN_TEMPLATES', 'buildSyncPayload()', 'generateCampaignCode()']}
           />
+          <LibraryCard
+            file="instrument-scoring.ts"
+            description="Generic survey scoring engine with built-in scorers for M-CHAT-R/F, PSC-35, SDQ, and PHQ-A instruments. Supports custom scoring via JSON weights."
+            exports={['scoreInstrument()', 'scoreMCHAT()', 'scorePSC()', 'scoreSDQ()', 'scorePHQ()']}
+          />
+          <LibraryCard
+            file="fhir-adapter.ts"
+            description="FHIR R4 resource adapters for healthcare interoperability. Converts SKIDS types to FHIR Patient, Observation, Consent, and ResearchStudy resources."
+            exports={['childToFhirPatient()', 'observationToFhirObservation()', 'createFhirBundle()']}
+          />
         </div>
       </section>
 
@@ -487,7 +539,7 @@ export function TechManualPage() {
           <h2 className="text-lg font-bold text-gray-900">Database Schema</h2>
         </div>
         <p className="mb-4 text-sm text-gray-600">
-          Turso (libSQL) with 9 core tables. Schema defined in{' '}
+          Turso (libSQL) with 19 core tables. Schema defined in{' '}
           <code className="rounded bg-gray-100 px-1.5 py-0.5 text-xs font-mono">packages/db/src/schema.ts</code>.
         </p>
         <div className="overflow-x-auto">

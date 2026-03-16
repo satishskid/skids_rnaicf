@@ -59,8 +59,10 @@ const DOC_CARDS = [
 const STATS = [
   { label: 'Screening Modules', value: '27+' },
   { label: 'Conditions Covered', value: '52' },
-  { label: 'Categories', value: '7' },
+  { label: 'Research Instruments', value: '4+' },
+  { label: 'FHIR Resources', value: '4' },
   { label: 'User Roles', value: '5' },
+  { label: 'Database Tables', value: '19' },
 ]
 
 export function DocsHubPage() {
@@ -76,8 +78,8 @@ export function DocsHubPage() {
         </h1>
         <p className="mx-auto mt-2 max-w-xl text-sm text-gray-500">
           Comprehensive guides for the School Kids Development Screening
-          platform &mdash; from field operations to clinical reference and
-          technical architecture.
+          platform &mdash; from field operations and clinical research to
+          population health analytics and technical architecture.
         </p>
       </div>
 
@@ -106,7 +108,7 @@ export function DocsHubPage() {
       </div>
 
       {/* Quick Stats */}
-      <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
+      <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-6">
         {STATS.map((stat) => (
           <div
             key={stat.label}

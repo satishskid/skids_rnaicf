@@ -1,12 +1,18 @@
 /**
- * Parent Report Page — Token-protected, no-login view of child health report.
- * Accessed via /report/:token — suitable for QR code sharing.
- * Parent-friendly language, simplified visualizations, educational content.
- * Enhanced with: percentile bars, radar charts, rich condition cards, evidence gallery, print layout.
+ * Parent Portal — Single public page for parents to access their child's health report.
+ *
+ * Flow:
+ * 1. School broadcasts ONE URL: /parent
+ * 2. Parent scans QR from child's health card → code auto-fills via ?code= param
+ *    OR parent enters 8-char code manually
+ * 3. Lookup → shows child's first name + "enter DOB to verify"
+ * 4. DOB verified → full health screening report displayed
+ *
+ * Security: QR code (possession) + DOB (knowledge) + admin release gate (authorization)
  */
 
 import { useEffect, useState, useMemo } from 'react'
-import { useParams } from 'react-router-dom'
+import { useSearchParams } from 'react-router-dom'
 import type { Child, Observation } from '@skids/shared'
 import {
   MODULE_CONFIGS,
@@ -20,119 +26,218 @@ import {
 import { RadarChart } from '../components/report/RadarChart'
 
 interface ReportData {
-  child: Child
+  child: Child & { schoolName?: string }
   observations: Observation[]
-  campaignCode: string
   reviews?: Array<{
     decision?: string
     notes?: string
     clinicianName?: string
-    moduleType?: string
+    observationId?: string
   }>
+  campaignCode: string
+  campaignName?: string
 }
 
-export function ParentReportPage() {
-  const { token } = useParams<{ token: string }>()
-  const [data, setData] = useState<ReportData | null>(null)
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState<string | null>(null)
+type PortalStep = 'enter_code' | 'verify_dob' | 'report'
 
-  // Verification state
-  const [childFirstName, setChildFirstName] = useState<string | null>(null)
-  const [verified, setVerified] = useState(false)
+export function ParentPortalPage() {
+  const [searchParams] = useSearchParams()
+  const [step, setStep] = useState<PortalStep>('enter_code')
+  const [code, setCode] = useState('')
+  const [childFirstName, setChildFirstName] = useState('')
+  const [campaignCode, setCampaignCode] = useState('')
   const [dobInput, setDobInput] = useState('')
-  const [verifying, setVerifying] = useState(false)
-  const [verifyError, setVerifyError] = useState<string | null>(null)
+  const [data, setData] = useState<ReportData | null>(null)
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const [remainingAttempts, setRemainingAttempts] = useState<number | null>(null)
 
   const apiUrl = import.meta.env.VITE_API_URL || 'https://skids-api.satish-9f4.workers.dev'
 
-  // Step 1: Validate token and get child's first name
+  // Auto-fill code from URL query param (QR scan opens browser with ?code=XXXXXXXX)
   useEffect(() => {
-    async function validateToken() {
-      try {
-        const res = await fetch(`${apiUrl}/api/report-tokens/${token}`)
-        if (!res.ok) {
-          const errData = await res.json().catch(() => ({}))
-          throw new Error(errData.error || 'This report link is invalid or has expired.')
-        }
-        const result = await res.json()
-        if (result.status === 'verification_required') {
-          setChildFirstName(result.childFirstName)
-        } else {
-          // Legacy token (already has data) — show directly
-          setData(result)
-          setVerified(true)
-        }
-      } catch (e) {
-        setError(e instanceof Error ? e.message : 'Failed to load report')
-      } finally {
-        setLoading(false)
-      }
+    const urlCode = searchParams.get('code')
+    if (urlCode && urlCode.length >= 4) {
+      setCode(urlCode.toUpperCase())
+      // Auto-lookup if code is provided via URL
+      handleLookup(urlCode.toUpperCase())
     }
-    if (token) validateToken()
-  }, [token])
+  }, [])
 
-  // Step 2: Verify with DOB
+  async function handleLookup(lookupCode?: string) {
+    const c = (lookupCode || code).trim().toUpperCase()
+    if (!c || c.length < 4) {
+      setError('Please enter a valid code from the health card.')
+      return
+    }
+    setLoading(true)
+    setError(null)
+    try {
+      const res = await fetch(`${apiUrl}/api/parent-portal/lookup`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ code: c }),
+      })
+      const result = await res.json()
+      if (!res.ok) {
+        throw new Error(result.error || 'Unable to find this code.')
+      }
+      if (result.status === 'not_released') {
+        setError(result.message || 'Reports are not yet available. Please check back later.')
+        return
+      }
+      if (result.status === 'verification_required') {
+        setCode(c)
+        setChildFirstName(result.childFirstName)
+        setCampaignCode(result.campaignCode)
+        setStep('verify_dob')
+      }
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Failed to look up code')
+    } finally {
+      setLoading(false)
+    }
+  }
+
   async function handleVerify(e: React.FormEvent) {
     e.preventDefault()
     if (!dobInput) return
-    setVerifying(true)
-    setVerifyError(null)
+    setLoading(true)
+    setError(null)
     try {
-      const res = await fetch(`${apiUrl}/api/report-tokens/${token}/verify`, {
+      const res = await fetch(`${apiUrl}/api/parent-portal/verify`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ dob: dobInput }),
+        body: JSON.stringify({ code, dob: dobInput }),
       })
-      if (!res.ok) {
-        const errData = await res.json().catch(() => ({}))
-        throw new Error(errData.error || 'Verification failed. Please check the date of birth.')
-      }
       const result = await res.json()
+      if (!res.ok) {
+        if (result.remainingAttempts !== undefined) {
+          setRemainingAttempts(result.remainingAttempts)
+        }
+        throw new Error(result.error || 'Verification failed.')
+      }
       setData(result)
-      setVerified(true)
+      setStep('report')
     } catch (e) {
-      setVerifyError(e instanceof Error ? e.message : 'Verification failed')
+      setError(e instanceof Error ? e.message : 'Verification failed')
     } finally {
-      setVerifying(false)
+      setLoading(false)
     }
   }
 
-  const fourDReport = useMemo(() => {
-    if (!data) return null
-    return computeFourDReport(data.child || { id: '', name: '' } as any, data.observations, data.screenerName || 'Nurse')
-  }, [data])
-
-  if (loading) {
+  // ─── Step 1: Enter Code ───
+  if (step === 'enter_code') {
     return (
-      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
-        <div className="text-center">
-          <div className="animate-spin w-8 h-8 border-2 border-gray-300 border-t-blue-600 rounded-full mx-auto" />
-          <p className="mt-3 text-sm text-gray-500">Loading health report...</p>
-        </div>
-      </div>
-    )
-  }
-
-  if (error) {
-    return (
-      <div className="min-h-screen bg-gray-50 flex items-center justify-center p-4">
-        <div className="max-w-md w-full bg-white rounded-xl border border-gray-200 p-8 text-center">
-          <div className="w-12 h-12 rounded-full bg-red-100 flex items-center justify-center mx-auto mb-4">
-            <span className="text-red-600 text-xl">!</span>
+      <div className="min-h-screen bg-gradient-to-b from-blue-50 via-white to-blue-50">
+        {/* Hero Header */}
+        <div className="bg-blue-600 text-white">
+          <div className="max-w-lg mx-auto px-6 py-10 text-center">
+            <div className="w-16 h-16 rounded-2xl bg-white/20 flex items-center justify-center mx-auto mb-4">
+              <svg className="w-9 h-9 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
+              </svg>
+            </div>
+            <h1 className="text-2xl font-bold">SKIDS Health Report</h1>
+            <p className="mt-2 text-blue-100 text-sm">
+              Access your child's health screening results securely
+            </p>
           </div>
-          <h1 className="text-lg font-semibold text-gray-900">Report Unavailable</h1>
-          <p className="mt-2 text-sm text-gray-500">{error}</p>
-          <p className="mt-4 text-xs text-gray-400">
-            If you believe this is an error, please contact your child's school or clinic.
+        </div>
+
+        <div className="max-w-lg mx-auto px-6 -mt-6">
+          <div className="bg-white rounded-2xl shadow-lg border border-gray-100 overflow-hidden">
+            <div className="p-6 space-y-5">
+              {/* Instructions */}
+              <div className="text-center">
+                <h2 className="text-base font-semibold text-gray-900">Enter Your Child's Code</h2>
+                <p className="mt-1 text-sm text-gray-500">
+                  Find the 8-character code on your child's health card
+                </p>
+              </div>
+
+              {/* How it works steps */}
+              <div className="bg-blue-50 rounded-xl p-4 space-y-3">
+                <div className="flex items-start gap-3">
+                  <span className="flex-shrink-0 w-6 h-6 rounded-full bg-blue-600 text-white text-xs font-bold flex items-center justify-center">1</span>
+                  <div>
+                    <p className="text-sm font-medium text-gray-800">Scan or enter the code</p>
+                    <p className="text-xs text-gray-500">From the QR health card your child brought home</p>
+                  </div>
+                </div>
+                <div className="flex items-start gap-3">
+                  <span className="flex-shrink-0 w-6 h-6 rounded-full bg-blue-600 text-white text-xs font-bold flex items-center justify-center">2</span>
+                  <div>
+                    <p className="text-sm font-medium text-gray-800">Verify with date of birth</p>
+                    <p className="text-xs text-gray-500">Enter your child's date of birth for security</p>
+                  </div>
+                </div>
+                <div className="flex items-start gap-3">
+                  <span className="flex-shrink-0 w-6 h-6 rounded-full bg-blue-600 text-white text-xs font-bold flex items-center justify-center">3</span>
+                  <div>
+                    <p className="text-sm font-medium text-gray-800">View health report</p>
+                    <p className="text-xs text-gray-500">See detailed results, save or print for your doctor</p>
+                  </div>
+                </div>
+              </div>
+
+              {/* Code Input */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1.5">
+                  Health Card Code
+                </label>
+                <input
+                  type="text"
+                  value={code}
+                  onChange={(e) => setCode(e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, ''))}
+                  placeholder="e.g. J7K2M4NP"
+                  maxLength={8}
+                  className="w-full rounded-xl border border-gray-300 px-4 py-3.5 text-center text-lg font-mono font-bold tracking-[0.3em] placeholder:tracking-normal placeholder:font-normal placeholder:text-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-200"
+                  autoFocus
+                />
+              </div>
+
+              {error && (
+                <div className="rounded-xl bg-red-50 border border-red-200 px-4 py-3 text-sm text-red-700">
+                  {error}
+                </div>
+              )}
+
+              <button
+                onClick={() => handleLookup()}
+                disabled={loading || code.length < 4}
+                className="w-full rounded-xl bg-blue-600 px-4 py-3.5 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-50 transition-colors"
+              >
+                {loading ? (
+                  <span className="flex items-center justify-center gap-2">
+                    <span className="animate-spin w-4 h-4 border-2 border-white border-t-transparent rounded-full" />
+                    Looking up...
+                  </span>
+                ) : (
+                  'View Report'
+                )}
+              </button>
+
+              <p className="text-[10px] text-gray-400 text-center leading-relaxed">
+                If you don't have a code, please contact your child's school.
+                <br />Health data is protected and securely stored.
+              </p>
+            </div>
+          </div>
+        </div>
+
+        {/* Footer */}
+        <div className="max-w-lg mx-auto px-6 py-8 text-center">
+          <p className="text-[10px] text-gray-400">
+            Powered by SKIDS — School Kids Screening &amp; Development System
           </p>
         </div>
       </div>
     )
   }
 
-  // Verification gate — parent must enter DOB before seeing report
-  if (!verified && childFirstName) {
+  // ─── Step 2: Verify DOB ───
+  if (step === 'verify_dob') {
     return (
       <div className="min-h-screen bg-gradient-to-b from-blue-50 to-white flex items-center justify-center p-4">
         <div className="max-w-md w-full bg-white rounded-2xl border border-gray-200 shadow-lg overflow-hidden">
@@ -143,9 +248,9 @@ export function ParentReportPage() {
                 <path strokeLinecap="round" strokeLinejoin="round" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
               </svg>
             </div>
-            <h1 className="text-lg font-bold text-white">Health Screening Report</h1>
+            <h1 className="text-lg font-bold text-white">Verify Your Identity</h1>
             <p className="mt-1 text-sm text-blue-100">
-              Verification required for <span className="font-semibold">{childFirstName}'s</span> report
+              Health report for <span className="font-semibold">{childFirstName}</span>
             </p>
           </div>
 
@@ -153,7 +258,7 @@ export function ParentReportPage() {
           <form onSubmit={handleVerify} className="px-6 py-6 space-y-4">
             <div>
               <p className="text-sm text-gray-600 mb-4">
-                To protect your child's health information, please enter their <strong>date of birth</strong> to verify your identity.
+                To protect your child's health information, please enter <strong>{childFirstName}'s</strong> date of birth.
               </p>
               <label className="block text-sm font-medium text-gray-700 mb-1.5">
                 Child's Date of Birth
@@ -162,24 +267,30 @@ export function ParentReportPage() {
                 type="date"
                 value={dobInput}
                 onChange={(e) => setDobInput(e.target.value)}
-                className="w-full rounded-lg border border-gray-300 px-4 py-3 text-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-200"
+                className="w-full rounded-xl border border-gray-300 px-4 py-3 text-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-200"
                 required
+                autoFocus
                 max={new Date().toISOString().split('T')[0]}
               />
             </div>
 
-            {verifyError && (
-              <div className="rounded-lg bg-red-50 border border-red-200 px-4 py-3 text-sm text-red-700">
-                {verifyError}
+            {error && (
+              <div className="rounded-xl bg-red-50 border border-red-200 px-4 py-3 text-sm text-red-700">
+                {error}
+                {remainingAttempts !== null && remainingAttempts > 0 && (
+                  <p className="mt-1 text-xs text-red-500">
+                    {remainingAttempts} attempt{remainingAttempts !== 1 ? 's' : ''} remaining
+                  </p>
+                )}
               </div>
             )}
 
             <button
               type="submit"
-              disabled={verifying || !dobInput}
-              className="w-full rounded-lg bg-blue-600 px-4 py-3 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-50 transition-colors"
+              disabled={loading || !dobInput}
+              className="w-full rounded-xl bg-blue-600 px-4 py-3 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-50 transition-colors"
             >
-              {verifying ? (
+              {loading ? (
                 <span className="flex items-center justify-center gap-2">
                   <span className="animate-spin w-4 h-4 border-2 border-white border-t-transparent rounded-full" />
                   Verifying...
@@ -189,8 +300,16 @@ export function ParentReportPage() {
               )}
             </button>
 
+            <button
+              type="button"
+              onClick={() => { setStep('enter_code'); setError(null); setRemainingAttempts(null) }}
+              className="w-full text-center text-xs text-gray-500 hover:text-gray-700"
+            >
+              Use a different code
+            </button>
+
             <p className="text-[10px] text-gray-400 text-center">
-              Your child's health data is protected and encrypted. This link expires after 30 days.
+              Your child's health data is protected and encrypted.
             </p>
           </form>
         </div>
@@ -198,17 +317,23 @@ export function ParentReportPage() {
     )
   }
 
+  // ─── Step 3: Report Display ───
   if (!data) {
     return (
       <div className="min-h-screen bg-gray-50 flex items-center justify-center p-4">
         <div className="max-w-md w-full bg-white rounded-xl border border-gray-200 p-8 text-center">
           <h1 className="text-lg font-semibold text-gray-900">Report Unavailable</h1>
-          <p className="mt-2 text-sm text-gray-500">This report could not be found.</p>
+          <p className="mt-2 text-sm text-gray-500">This report could not be loaded.</p>
         </div>
       </div>
     )
   }
 
+  return <ReportView data={data} />
+}
+
+// ─── Full Report View ───
+function ReportView({ data }: { data: ReportData }) {
   const { child, observations, reviews } = data
   const ageMs = child.dob ? Date.now() - new Date(child.dob).getTime() : 0
   const ageYears = Math.floor(ageMs / (365.25 * 24 * 60 * 60 * 1000))
@@ -216,6 +341,11 @@ export function ParentReportPage() {
   const ageStr = child.dob
     ? ageYears > 0 ? `${ageYears}y ${ageMonths}m` : `${ageMonths} months`
     : ''
+
+  const fourDReport = useMemo(() => {
+    if (!observations?.length) return null
+    return computeFourDReport(observations)
+  }, [observations])
 
   const vitalModules = ['height', 'weight', 'vitals', 'spo2', 'hemoglobin', 'bp', 'muac', 'bmi']
   const vitalObs = observations.filter(o => vitalModules.includes(o.moduleType))
@@ -226,7 +356,6 @@ export function ParentReportPage() {
   ).length
   const findingsCount = observations.length - normalCount
 
-  // Determine risk level
   const hasHighRisk = observations.some(o => o.aiAnnotations?.[0]?.riskCategory === 'high_risk')
   const hasPossibleRisk = observations.some(o => o.aiAnnotations?.[0]?.riskCategory === 'possible_risk')
   const riskLevel: 'all_clear' | 'review' | 'attention' =
@@ -240,14 +369,9 @@ export function ParentReportPage() {
     if (behavioralObs.length === 0) return null
     const dimensions = ['Attention', 'Social', 'Emotional', 'Motor', 'Language', 'Adaptive']
     const moduleMap: Record<string, string> = {
-      behavioral: 'Attention',
-      social: 'Social',
-      emotional: 'Emotional',
-      motor: 'Motor',
-      language: 'Language',
-      learning: 'Adaptive',
+      behavioral: 'Attention', social: 'Social', emotional: 'Emotional',
+      motor: 'Motor', language: 'Language', learning: 'Adaptive',
     }
-
     return dimensions.map(dim => {
       const matchedObs = behavioralObs.find(o => moduleMap[o.moduleType] === dim)
       if (!matchedObs) return { dimension: dim, value: 3 }
@@ -257,20 +381,15 @@ export function ParentReportPage() {
     })
   }, [behavioralObs])
 
-  // Evidence images
   const evidenceImages = observations
     .filter(o => o.mediaUrl)
-    .map(o => ({
-      url: o.mediaUrl!,
-      module: MODULE_CONFIGS.find(m => m.type === o.moduleType)?.name || o.moduleType,
-    }))
+    .map(o => ({ url: o.mediaUrl!, module: MODULE_CONFIGS.find(m => m.type === o.moduleType)?.name || o.moduleType }))
 
-  // Doctor's notes from reviews
   const doctorNotes = (reviews || []).filter(r => r.notes && r.notes.trim())
 
   return (
     <div className="min-h-screen bg-gray-50 print:bg-white">
-      {/* Print-only header */}
+      {/* Print header */}
       <div className="hidden print:block print:mb-4">
         <div className="text-center border-b-2 border-blue-600 pb-3">
           <h1 className="text-xl font-bold text-blue-800">SKIDS Health Screening Report</h1>
@@ -298,14 +417,14 @@ export function ParentReportPage() {
               <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                 <path strokeLinecap="round" strokeLinejoin="round" d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z" />
               </svg>
-              Print Report
+              Print
             </button>
           </div>
         </div>
       </div>
 
       <div className="max-w-2xl mx-auto px-4 py-6 space-y-6 print:py-2 print:space-y-4">
-        {/* Child Profile (print) */}
+        {/* Print-only child info */}
         <div className="hidden print:block">
           <div className="flex items-center gap-4 text-sm">
             <span><strong>Name:</strong> {child.name}</span>
@@ -318,24 +437,21 @@ export function ParentReportPage() {
         {/* Risk Level Badge */}
         <div className={`rounded-xl border-2 p-4 text-center ${
           riskLevel === 'all_clear' ? 'bg-green-50 border-green-300' :
-          riskLevel === 'review' ? 'bg-amber-50 border-amber-300' :
-          'bg-red-50 border-red-300'
+          riskLevel === 'review' ? 'bg-amber-50 border-amber-300' : 'bg-red-50 border-red-300'
         }`}>
           <div className={`inline-flex items-center gap-2 rounded-full px-4 py-1.5 text-sm font-bold ${
             riskLevel === 'all_clear' ? 'bg-green-200 text-green-800' :
-            riskLevel === 'review' ? 'bg-amber-200 text-amber-800' :
-            'bg-red-200 text-red-800'
+            riskLevel === 'review' ? 'bg-amber-200 text-amber-800' : 'bg-red-200 text-red-800'
           }`}>
-            <span className="text-lg">{riskLevel === 'all_clear' ? '\u2713' : riskLevel === 'review' ? '\u26A0' : '\u26A0'}</span>
+            <span className="text-lg">{riskLevel === 'all_clear' ? '\u2713' : '\u26A0'}</span>
             {riskLevel === 'all_clear' ? 'All Clear' : riskLevel === 'review' ? 'Review Suggested' : 'Needs Attention'}
           </div>
           <p className={`mt-2 text-xs ${
             riskLevel === 'all_clear' ? 'text-green-700' :
-            riskLevel === 'review' ? 'text-amber-700' :
-            'text-red-700'
+            riskLevel === 'review' ? 'text-amber-700' : 'text-red-700'
           }`}>
             {riskLevel === 'all_clear'
-              ? 'Your child\'s screening results are within normal range. Great job!'
+              ? "Your child's screening results are within normal range. Great job!"
               : riskLevel === 'review'
                 ? 'Some results may benefit from a follow-up with your doctor.'
                 : 'Please schedule a doctor visit to discuss the findings below.'}
@@ -365,9 +481,9 @@ export function ParentReportPage() {
 
         {/* Vitals with Percentile Bars */}
         {vitalObs.length > 0 && (
-          <div className="bg-white rounded-xl border border-gray-200 p-5 print:break-before-auto">
+          <div className="bg-white rounded-xl border border-gray-200 p-5">
             <h2 className="text-sm font-semibold text-gray-800 uppercase tracking-wide mb-3">
-              Measurements & Growth
+              Measurements &amp; Growth
             </h2>
             <div className="space-y-4">
               {vitalObs.map(obs => {
@@ -389,19 +505,15 @@ export function ParentReportPage() {
                         <span className="text-sm font-semibold text-gray-900">{value}{unit}</span>
                         <span className={`text-[10px] px-1.5 py-0.5 rounded font-medium ${
                           risk === 'high_risk' ? 'bg-red-100 text-red-700' :
-                          risk === 'possible_risk' ? 'bg-amber-100 text-amber-700' :
-                          'bg-green-100 text-green-700'
+                          risk === 'possible_risk' ? 'bg-amber-100 text-amber-700' : 'bg-green-100 text-green-700'
                         }`}>
                           {risk === 'no_risk' ? 'Normal' : risk === 'possible_risk' ? 'Check' : 'Attention'}
                         </span>
                       </div>
                     </div>
-
-                    {/* Percentile Bar */}
                     {percentile !== null && (
                       <div className="mt-1.5">
                         <div className="relative h-3 rounded-full overflow-hidden">
-                          {/* Gradient background */}
                           <div className="absolute inset-0 flex">
                             <div className="w-[5%] bg-red-300" />
                             <div className="w-[10%] bg-amber-200" />
@@ -409,18 +521,8 @@ export function ParentReportPage() {
                             <div className="w-[10%] bg-amber-200" />
                             <div className="w-[5%] bg-red-300" />
                           </div>
-                          {/* Marker */}
-                          <div
-                            className="absolute top-0 h-3 w-1 bg-gray-900 rounded-full"
-                            style={{ left: `${Math.min(99, Math.max(1, percentile))}%` }}
-                          />
-                        </div>
-                        <div className="flex justify-between mt-0.5">
-                          <span className="text-[9px] text-gray-400">Very Low</span>
-                          <span className="text-[9px] text-gray-400">Below Avg</span>
-                          <span className="text-[9px] text-gray-500 font-medium">Normal Range</span>
-                          <span className="text-[9px] text-gray-400">Above Avg</span>
-                          <span className="text-[9px] text-gray-400">Very High</span>
+                          <div className="absolute top-0 h-3 w-1 bg-gray-900 rounded-full"
+                            style={{ left: `${Math.min(99, Math.max(1, percentile))}%` }} />
                         </div>
                         <p className="text-[10px] text-gray-500 mt-0.5">
                           {getPercentileLabel(percentile)} (Percentile: {Math.round(percentile)}th)
@@ -435,28 +537,16 @@ export function ParentReportPage() {
         )}
 
         {/* Behavioral/Learning Radar Chart */}
-        {radarData && radarData.length > 0 && (
+        {radarData && (
           <div className="bg-white rounded-xl border border-gray-200 p-5 print:break-before-page">
             <h2 className="text-sm font-semibold text-gray-800 uppercase tracking-wide mb-3">
               Development Profile
             </h2>
             <p className="text-xs text-gray-500 mb-4">
               This chart shows your child's developmental screening across key areas.
-              Higher values indicate typical development.
             </p>
             <div className="flex justify-center">
               <RadarChart data={radarData} size={260} />
-            </div>
-            <div className="mt-3 flex items-center justify-center gap-4 text-[10px] text-gray-500">
-              <span className="flex items-center gap-1">
-                <span className="w-2 h-2 rounded-full bg-red-400 inline-block" /> Concern (1)
-              </span>
-              <span className="flex items-center gap-1">
-                <span className="w-2 h-2 rounded-full bg-amber-400 inline-block" /> Developing (2-3)
-              </span>
-              <span className="flex items-center gap-1">
-                <span className="w-2 h-2 rounded-full bg-green-500 inline-block" /> Typical (4-5)
-              </span>
             </div>
           </div>
         )}
@@ -484,11 +574,9 @@ export function ParentReportPage() {
                         {isNormal ? 'Normal' : 'Needs Follow-up'}
                       </span>
                     </div>
-
                     {obs.aiAnnotations?.[0]?.summaryText && (
                       <p className="mt-1 text-xs text-gray-600">{obs.aiAnnotations[0].summaryText}</p>
                     )}
-
                     {education && (
                       <p className="mt-2 text-xs text-gray-500">
                         {isNormal ? education.healthyMessage : education.intro}
@@ -501,24 +589,20 @@ export function ParentReportPage() {
           </div>
         )}
 
-        {/* Enhanced Condition Cards */}
-        {fourDReport && Object.values(fourDReport.categories).some((c: any) => c.length > 0) && (
+        {/* 4D Condition Cards */}
+        {fourDReport && fourDReport.categories.some(c => c.conditions.length > 0) && (
           <div className="bg-white rounded-xl border border-gray-200 p-5 print:break-before-page">
-            <h2 className="text-sm font-semibold text-gray-800 uppercase tracking-wide mb-3">
-              What We Found
-            </h2>
+            <h2 className="text-sm font-semibold text-gray-800 uppercase tracking-wide mb-3">What We Found</h2>
             <div className="space-y-4">
-              {Object.entries(fourDReport.categories)
-                .filter(([, conds]: any) => conds.length > 0)
-                .flatMap(([catKey, conds]: any) => (conds as any[]).map(cond => ({ ...cond, categoryKey: catKey as keyof typeof FOUR_D_CATEGORY_LABELS })))
+              {fourDReport.categories
+                .filter(c => c.conditions.length > 0)
+                .flatMap(cat => cat.conditions.map(cond => ({ ...cond, categoryKey: cat.category as keyof typeof FOUR_D_CATEGORY_LABELS })))
                 .map(cond => {
                   const condInfo = getConditionInfo(cond.id)
-                  const catColors = FOUR_D_CATEGORY_COLORS[cond.categoryKey]
                   const catLabel = FOUR_D_CATEGORY_LABELS[cond.categoryKey]
 
                   return (
                     <div key={cond.id} className="rounded-xl border border-gray-200 overflow-hidden">
-                      {/* Condition Header */}
                       <div className={`px-4 py-3 flex items-center justify-between ${
                         cond.severity === 'severe' ? 'bg-red-50' :
                         cond.severity === 'moderate' ? 'bg-amber-50' : 'bg-yellow-50'
@@ -526,19 +610,12 @@ export function ParentReportPage() {
                         <div className="flex items-center gap-2">
                           <span className={`text-[10px] px-1.5 py-0.5 rounded font-bold ${
                             cond.severity === 'severe' ? 'bg-red-200 text-red-800' :
-                            cond.severity === 'moderate' ? 'bg-amber-200 text-amber-800' :
-                            'bg-yellow-200 text-yellow-800'
-                          }`}>
-                            {cond.severity}
-                          </span>
+                            cond.severity === 'moderate' ? 'bg-amber-200 text-amber-800' : 'bg-yellow-200 text-yellow-800'
+                          }`}>{cond.severity}</span>
                           <h3 className="text-sm font-semibold text-gray-900">{cond.name}</h3>
                         </div>
-                        <span className={`text-[10px] px-2 py-0.5 rounded-full font-medium ${catColors?.badge || 'bg-gray-100 text-gray-700'}`}>
-                          {catLabel}
-                        </span>
+                        <span className="text-[10px] px-2 py-0.5 rounded-full font-medium bg-gray-100 text-gray-700">{catLabel}</span>
                       </div>
-
-                      {/* Condition Details */}
                       <div className="px-4 py-3 space-y-3">
                         {condInfo && (
                           <>
@@ -588,23 +665,15 @@ export function ParentReportPage() {
         {/* Evidence Gallery */}
         {evidenceImages.length > 0 && (
           <div className="bg-white rounded-xl border border-gray-200 p-5 print:break-before-page">
-            <h2 className="text-sm font-semibold text-gray-800 uppercase tracking-wide mb-3">
-              Screening Images
-            </h2>
+            <h2 className="text-sm font-semibold text-gray-800 uppercase tracking-wide mb-3">Screening Images</h2>
             <div className={`grid gap-3 ${
-              evidenceImages.length === 1 ? 'grid-cols-1' :
-              evidenceImages.length === 2 ? 'grid-cols-2' :
-              'grid-cols-3'
+              evidenceImages.length === 1 ? 'grid-cols-1' : evidenceImages.length === 2 ? 'grid-cols-2' : 'grid-cols-3'
             }`}>
               {evidenceImages.map((img, idx) => (
                 <div key={idx} className="rounded-lg overflow-hidden border border-gray-200">
-                  <img
-                    src={img.url}
-                    alt={`${img.module} screening`}
-                    loading="lazy"
+                  <img src={img.url} alt={`${img.module} screening`} loading="lazy"
                     className="w-full h-40 object-cover bg-gray-100"
-                    onError={(e) => { (e.target as HTMLImageElement).style.display = 'none' }}
-                  />
+                    onError={(e) => { (e.target as HTMLImageElement).style.display = 'none' }} />
                   <p className="text-[10px] text-gray-500 px-2 py-1 bg-gray-50">{img.module}</p>
                 </div>
               ))}
@@ -615,15 +684,13 @@ export function ParentReportPage() {
         {/* Doctor's Notes */}
         {doctorNotes.length > 0 && (
           <div className="bg-white rounded-xl border border-gray-200 p-5">
-            <h2 className="text-sm font-semibold text-gray-800 uppercase tracking-wide mb-3">
-              Doctor's Notes
-            </h2>
+            <h2 className="text-sm font-semibold text-gray-800 uppercase tracking-wide mb-3">Doctor's Notes</h2>
             <div className="space-y-2">
               {doctorNotes.map((review, idx) => (
                 <div key={idx} className="rounded-lg bg-gray-50 p-3">
                   <p className="text-xs text-gray-700">{review.notes}</p>
                   {review.clinicianName && (
-                    <p className="mt-1 text-[10px] text-gray-400">— {review.clinicianName}</p>
+                    <p className="mt-1 text-[10px] text-gray-400">-- {review.clinicianName}</p>
                   )}
                 </div>
               ))}
@@ -663,9 +730,7 @@ export function ParentReportPage() {
 }
 
 // ── Helpers ──
-
 function zScoreToPercentile(z: number): number {
-  // Approximation using error function
   const t = 1 / (1 + 0.2316419 * Math.abs(z))
   const d = 0.3989423 * Math.exp(-z * z / 2)
   const p = d * t * (0.3193815 + t * (-0.3565638 + t * (1.781478 + t * (-1.821256 + t * 1.330274))))

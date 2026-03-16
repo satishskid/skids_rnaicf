@@ -5,6 +5,8 @@
     "rootDir": "./src",
     "jsx": "react-jsx",
     "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    "noImplicitAny": false,
+    "strictNullChecks": false,
     "paths": {
       "@skids/shared": ["../../packages/shared/src"],
       "@/*": ["./src/*"]

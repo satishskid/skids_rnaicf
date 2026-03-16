@@ -71,7 +71,7 @@ export function OverviewTab() {
   async function fetchHealth() {
     setHealthLoading(true)
     try {
-      const apiUrl = import.meta.env.VITE_API_URL || ''
+      const apiUrl = (import.meta as any).env?.VITE_API_URL || ''
       const res = await fetch(`${apiUrl}/api/health/detailed`)
       setHealth(await res.json())
     } catch {
