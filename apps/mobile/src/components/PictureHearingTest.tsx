@@ -686,7 +686,9 @@ export function PictureHearingTest({ childName, onComplete, onCancel, accentColo
 // ── Styles ──
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window')
-const CARD_SIZE = Math.min((SCREEN_WIDTH - spacing.lg * 3) / 2, 160)
+// Account for parent ScrollView padding (16dp each side) + grid padding + gap
+const AVAILABLE_WIDTH = SCREEN_WIDTH - spacing.md * 2 - spacing.sm * 2 - spacing.md
+const CARD_SIZE = Math.min(Math.floor(AVAILABLE_WIDTH / 2), 140)
 
 const styles = StyleSheet.create({
   container: {
