@@ -136,14 +136,13 @@ export interface VisionAnalysisResult {
 }
 
 /**
- * Modules where LLM vision should be the PRIMARY analysis path.
- * For these modules, pixel-based analysis is inadequate for clinical accuracy —
- * a vision LLM can identify specific conditions (caries, otitis, eczema, etc.)
- * that color thresholds cannot distinguish.
+ * Modules where cloud LLM vision analysis is AVAILABLE (for doctor review).
  *
- * Pixel analysis still runs as OFFLINE FALLBACK when no network is available.
+ * At nurse level, ALL modules use on-device analysis first (local AI / pixel).
+ * Cloud LLM is only invoked during doctor review or when explicitly requested.
+ * This ensures offline-first operation in field conditions.
  */
-export const LLM_PRIMARY_MODULES = new Set([
+export const LLM_AVAILABLE_MODULES = new Set([
   'dental', 'oral',
   'ear', 'ent', 'otoscopy',
   'skin', 'derma', 'wound',
@@ -154,11 +153,18 @@ export const LLM_PRIMARY_MODULES = new Set([
   'nails',
   'general_appearance',
   'neck', 'abdomen',
+  'vision',
 ])
 
-export function isLLMPrimaryModule(moduleType: string): boolean {
+/** @deprecated Use on-device analysis at nurse level. Cloud LLM only for doctor review. */
+export function isLLMPrimaryModule(_moduleType: string): boolean {
+  return false // All modules now use on-device-first at nurse level
+}
+
+/** Check if a module supports cloud LLM enhancement (for doctor review screen). */
+export function isLLMAvailableModule(moduleType: string): boolean {
   const mod = moduleType.toLowerCase()
-  return LLM_PRIMARY_MODULES.has(mod) || Array.from(LLM_PRIMARY_MODULES).some(m => mod.includes(m))
+  return LLM_AVAILABLE_MODULES.has(mod) || Array.from(LLM_AVAILABLE_MODULES).some(m => mod.includes(m))
 }
 
 // ── Per-module clinical context for structured LLM prompts ──

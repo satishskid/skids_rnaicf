@@ -31,11 +31,7 @@ import {
   dentalQualityGate, skinQualityGate,
 } from '../lib/ai/quality-gate'
 import type { QualityGateResult } from '../lib/ai/pipeline'
-import {
-  buildVisionPrompt, parseVisionAnalysis, queryLLM, loadLLMConfig,
-  DEFAULT_LLM_CONFIG, type LLMMessage, type VisionAnalysisResult,
-} from '../lib/ai/llm-gateway'
-import { analyzeImageOnDevice, analyzeImageLLMPrimary, isLLMPrimaryModule } from '../lib/ai/image-analyzer'
+import { analyzeImageOnDevice } from '../lib/ai/image-analyzer'
 import { HearingForm } from '../components/HearingForm'
 import { MChatForm } from '../components/MChatForm'
 import { MotorTaskForm } from '../components/MotorTaskForm'
@@ -173,6 +169,7 @@ export function ModuleScreen({ navigation, route }: Props) {
   const [selectedChips, setSelectedChips] = useState<string[]>([])
   const [chipSeverities, setChipSeverities] = useState<Record<string, string>>({})
   const [aiResult, setAiResult] = useState<AIResult | null>(null)
+  const [extractedFrameUris, setExtractedFrameUris] = useState<string[]>([])
   const [showSuccess, setShowSuccess] = useState<false | 'online' | 'offline'>(false)
 
   // ── Quality Gate & Pipeline state ──────────────
@@ -349,217 +346,70 @@ export function ModuleScreen({ navigation, route }: Props) {
     setQualityFeedback(feedback)
     setPipelineRunning(true)
 
-    // Run image AI — different strategies for different module types:
-    //   LLM-PRIMARY modules (ENT/dental/skin/throat/etc.): LLM vision first, pixel fallback
-    //   OTHER modules (vision/photoscreening): On-device first, LLM enhancement
+    // ═══ LOCAL-FIRST AI (all modules) ═══
+    // Nurse-level analysis is always on-device. No cloud LLM calls.
+    // Cloud AI is only available during doctor review.
     const runImageAI = async () => {
       try {
-        const isLLMFirst = isLLMPrimaryModule(moduleType)
-
-        if (isLLMFirst) {
-          // ═══ LLM-PRIMARY PATH (dental, ear, skin, throat, nose, etc.) ═══
-          // These modules need a vision LLM to identify specific clinical conditions.
-          // Pixel analysis runs in parallel as offline fallback.
+        // For video modules (non-vitals): extract key frames, analyze best frame
+        let analysisUri = capturedUri
+        if (moduleConfig?.captureType === 'video') {
           setQualityFeedback({
             passed: true,
-            feedback: 'Analyzing with clinical AI vision...',
+            feedback: 'Extracting frames from video...',
             checks: [],
           })
-
-          const result = await analyzeImageLLMPrimary(
-            capturedUri, moduleType, moduleConfig.name,
-            childAge, undefined, undefined
-          )
-
-          // Set quality gate
-          if (result.qualityGate) setQualityGateResult(result.qualityGate)
-
-          // Set AI result
-          setAiResult(result.aiResult)
-
-          // Auto-select suggested chips
-          if (result.aiResult.suggestedChips?.length) {
-            setSelectedChips(prev => {
-              const newSet = new Set(prev)
-              for (const chipId of result.aiResult.suggestedChips) {
-                if (chips.some(c => c.id === chipId)) newSet.add(chipId)
-              }
-              return Array.from(newSet)
-            })
+          try {
+            const { extractAndPickBest } = await import('../lib/video-frames')
+            const { bestFrame, allFrameUris } = await extractAndPickBest(capturedUri)
+            if (bestFrame) {
+              analysisUri = bestFrame
+              // Store all frame URIs for upload (not the full video)
+              setExtractedFrameUris(allFrameUris)
+            }
+          } catch (frameErr) {
+            console.warn('Frame extraction failed, using video URI:', frameErr)
           }
-
-          // Build feedback message
-          const isLLMResult = 'llmProvider' in result && !result.onDevice
-          const providerInfo = isLLMResult
-            ? `AI Vision (${(result as { llmProvider: string }).llmProvider})`
-            : `On-device fallback`
-          const latency = result.inferenceMs
-
-          setQualityFeedback({
-            passed: result.qualityGate?.passed ?? true,
-            feedback: `${providerInfo} complete (${latency}ms) — ${result.aiResult.summary.slice(0, 80)}`,
-            checks: result.qualityGate?.checks || [],
-          })
-
-          return
         }
 
-        // ═══ ON-DEVICE-PRIMARY PATH (vision/photoscreening, etc.) ═══
-        // These modules have strong on-device algorithms (red reflex, slope photorefraction).
-        // Cloud LLM enhances when confidence is low.
         setQualityFeedback({
           passed: true,
           feedback: 'Running on-device AI analysis...',
           checks: [],
         })
 
-        const localResult = await analyzeImageOnDevice(capturedUri, moduleType)
+        const localResult = await analyzeImageOnDevice(analysisUri, moduleType)
 
         // Set quality gate from local analysis
         if (localResult.qualityGate) setQualityGateResult(localResult.qualityGate)
 
-        // If local analysis found something meaningful, use it
-        if (localResult.aiResult.confidence > 0.5 && localResult.aiResult.classification !== 'Unknown') {
-          setAiResult(localResult.aiResult)
+        // Use local result regardless of confidence — nurse can always edit chips manually
+        setAiResult(localResult.aiResult)
 
-          // Auto-select suggested chips
-          if (localResult.aiResult.suggestedChips?.length) {
-            setSelectedChips(prev => {
-              const newSet = new Set(prev)
-              for (const chipId of localResult.aiResult.suggestedChips) {
-                if (chips.some(c => c.id === chipId)) newSet.add(chipId)
-              }
-              return Array.from(newSet)
-            })
-          }
-
-          setQualityFeedback({
-            passed: localResult.qualityGate?.passed ?? true,
-            feedback: `On-device AI complete (${localResult.inferenceMs}ms) — ${localResult.aiResult.summary.slice(0, 80)}`,
-            checks: localResult.qualityGate?.checks || [],
-          })
-
-          // Cloud enhancement if low confidence
-          if (localResult.aiResult.confidence < 0.7) {
-            try {
-              const base64 = await FileSystem.readAsStringAsync(capturedUri, {
-                encoding: FileSystem.EncodingType.Base64,
-              })
-              const chipIds = chips.map(c => c.id)
-              const messages = buildVisionPrompt(moduleType, moduleConfig.name, childAge, undefined, undefined, chipIds)
-              const messagesWithImage: LLMMessage[] = messages.map(m =>
-                m.role === 'user' ? { ...m, images: [base64] } : m
-              )
-              const config = await loadLLMConfig()
-              const responses = await queryLLM(config, messagesWithImage)
-              const bestResponse = responses.find(r => !r.error && r.text)
-
-              if (bestResponse?.text) {
-                const visionResult = parseVisionAnalysis(bestResponse.text)
-                if (visionResult && visionResult.findings.length > 0) {
-                  const classificationMap: Record<string, string> = {
-                    normal: 'Normal', low: 'Low Risk', moderate: 'Moderate Risk', high: 'High Risk',
-                  }
-                  const cloudResult: AIResult = {
-                    classification: classificationMap[visionResult.riskLevel] || localResult.aiResult.classification,
-                    confidence: Math.max(
-                      localResult.aiResult.confidence,
-                      visionResult.findings.length > 0 ? Math.max(...visionResult.findings.map(f => f.confidence)) : 0
-                    ),
-                    summary: `${localResult.aiResult.summary} | [Cloud AI] ${visionResult.summary}`,
-                    suggestedChips: [
-                      ...localResult.aiResult.suggestedChips,
-                      ...visionResult.findings.filter(f => f.chipId).map(f => f.chipId!),
-                    ].filter((v, i, a) => a.indexOf(v) === i),
-                  }
-                  setAiResult(cloudResult)
-
-                  const newCloudChips = visionResult.findings.filter(f => f.chipId).map(f => f.chipId!)
-                  if (newCloudChips.length > 0) {
-                    setSelectedChips(prev => {
-                      const newSet = new Set(prev)
-                      for (const chipId of newCloudChips) {
-                        if (chips.some(c => c.id === chipId)) newSet.add(chipId)
-                      }
-                      return Array.from(newSet)
-                    })
-                  }
-
-                  setQualityFeedback({
-                    passed: localResult.qualityGate?.passed ?? true,
-                    feedback: `AI complete: on-device (${localResult.inferenceMs}ms) + cloud (${bestResponse.provider || 'AI'})`,
-                    checks: [],
-                  })
-                }
-              }
-            } catch (cloudErr) {
-              console.warn('Cloud AI enhancement failed (using local result):', cloudErr)
+        // Auto-select suggested chips
+        if (localResult.aiResult.suggestedChips?.length) {
+          setSelectedChips(prev => {
+            const newSet = new Set(prev)
+            for (const chipId of localResult.aiResult.suggestedChips) {
+              if (chips.some(c => c.id === chipId)) newSet.add(chipId)
             }
-          }
-
-          return
+            return Array.from(newSet)
+          })
         }
 
-        // ═══ LOCAL FAILED — FALL BACK TO CLOUD ═══
+        const confidenceNote = localResult.aiResult.confidence < 0.5
+          ? ' (low confidence — review chips manually)'
+          : ''
         setQualityFeedback({
-          passed: true,
-          feedback: 'On-device analysis inconclusive — trying cloud AI...',
-          checks: [],
+          passed: localResult.qualityGate?.passed ?? true,
+          feedback: `On-device AI complete (${localResult.inferenceMs}ms)${confidenceNote} — ${localResult.aiResult.summary.slice(0, 80)}`,
+          checks: localResult.qualityGate?.checks || [],
         })
-
-        const base64 = await FileSystem.readAsStringAsync(capturedUri, {
-          encoding: FileSystem.EncodingType.Base64,
-        })
-        const chipIds = chips.map(c => c.id)
-        const messages = buildVisionPrompt(moduleType, moduleConfig.name, childAge, undefined, undefined, chipIds)
-        const messagesWithImage: LLMMessage[] = messages.map(m =>
-          m.role === 'user' ? { ...m, images: [base64] } : m
-        )
-        const config = await loadLLMConfig()
-        const responses = await queryLLM(config, messagesWithImage)
-        const bestResponse = responses.find(r => !r.error && r.text) || responses[0]
-
-        if (bestResponse?.text) {
-          const visionResult = parseVisionAnalysis(bestResponse.text)
-          if (visionResult) {
-            const classificationMap: Record<string, string> = {
-              normal: 'Normal', low: 'Low Risk', moderate: 'Moderate Risk', high: 'High Risk',
-            }
-            const imageAiResult: AIResult = {
-              classification: classificationMap[visionResult.riskLevel] || 'Normal',
-              confidence: visionResult.findings.length > 0
-                ? Math.max(...visionResult.findings.map(f => f.confidence), 0.5) : 0.8,
-              summary: `[Cloud AI] ${visionResult.summary}`,
-              suggestedChips: visionResult.findings.filter(f => f.chipId).map(f => f.chipId!),
-            }
-            setAiResult(imageAiResult)
-            if (imageAiResult.suggestedChips?.length) {
-              setSelectedChips(prev => {
-                const newSet = new Set(prev)
-                for (const chipId of imageAiResult.suggestedChips) {
-                  if (chips.some(c => c.id === chipId)) newSet.add(chipId)
-                }
-                return Array.from(newSet)
-              })
-            }
-            setQualityFeedback({
-              passed: true,
-              feedback: `Cloud AI analysis complete (${bestResponse.provider || 'AI'}) — ${visionResult.summary.slice(0, 80)}`,
-              checks: [],
-            })
-          }
-        } else {
-          setQualityFeedback({
-            passed: true,
-            feedback: 'AI analysis unavailable — please annotate findings manually',
-            checks: [],
-          })
-        }
       } catch (err) {
         console.warn('Image AI analysis failed:', err)
         setQualityFeedback({
           passed: true,
-          feedback: 'AI analysis unavailable — please annotate findings manually',
+          feedback: 'AI analysis unavailable — select findings manually',
           checks: [],
         })
       } finally {
@@ -702,10 +552,17 @@ export function ModuleScreen({ navigation, route }: Props) {
 
       // Include captured media URI
       if (capturedUri) {
-        payload.mediaUrl = capturedUri
-        payload.mediaType = moduleConfig.captureType === 'audio' ? 'audio'
-          : moduleConfig.captureType === 'video' ? 'video'
-          : 'image'
+        // For video modules: use extracted frames instead of full video
+        if (extractedFrameUris.length > 0) {
+          payload.mediaUrl = extractedFrameUris[0] // best frame
+          payload.mediaUrls = extractedFrameUris   // all key frames
+          payload.mediaType = 'image' // frames are JPEG, not video
+        } else {
+          payload.mediaUrl = capturedUri
+          payload.mediaType = moduleConfig.captureType === 'audio' ? 'audio'
+            : moduleConfig.captureType === 'video' ? 'video'
+            : 'image'
+        }
       }
 
       // Include annotation chips
@@ -1336,11 +1193,11 @@ export function ModuleScreen({ navigation, route }: Props) {
           )}
         </TouchableOpacity>
 
-        {/* Skip Module (batch mode only) */}
-        {batchMode && batchModules.length > 0 && (
-          <TouchableOpacity
-            style={styles.skipButton}
-            onPress={() => {
+        {/* Skip Module — always available so nurse can move on */}
+        <TouchableOpacity
+          style={styles.skipButton}
+          onPress={() => {
+            if (batchMode && batchModules.length > 0) {
               const prevResults: BatchResult[] = batchResultsStr ? JSON.parse(batchResultsStr) : []
               const allResultsStr = JSON.stringify(prevResults)
               const nextIndex = batchIndex + 1
@@ -1368,12 +1225,16 @@ export function ModuleScreen({ navigation, route }: Props) {
                   batchResults: allResultsStr,
                 })
               }
-            }}
-            activeOpacity={0.7}
-          >
-            <Text style={styles.skipButtonText}>Skip Module</Text>
-          </TouchableOpacity>
-        )}
+            } else {
+              navigation.goBack()
+            }
+          }}
+          activeOpacity={0.7}
+        >
+          <Text style={styles.skipButtonText}>
+            {batchMode ? 'Skip Module' : 'Skip & Go Back'}
+          </Text>
+        </TouchableOpacity>
       </ScrollView>
     </View>
   )
