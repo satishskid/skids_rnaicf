@@ -132,6 +132,9 @@ export function ScreeningScreen({ navigation, route }: Props) {
   // Module completion tracking
   const [completedModules, setCompletedModules] = useState<Set<string>>(new Set())
 
+  // Module search filter
+  const [moduleSearch, setModuleSearch] = useState('')
+
   // Child search filter
   const [childSearch, setChildSearch] = useState('')
   const filteredChildren = useMemo(() => {
@@ -184,25 +187,35 @@ export function ScreeningScreen({ navigation, route }: Props) {
   // Group modules by category and chunk into rows of 3 for grid layout
   const sections = useMemo<SectionData[]>(() => {
     const groups: Record<string, ModuleConfig[]> = {}
+    const q = moduleSearch.toLowerCase().trim()
 
     MODULE_CONFIGS.forEach((mod) => {
+      // Filter by module search
+      if (q && !mod.name.toLowerCase().includes(q) &&
+          !mod.description.toLowerCase().includes(q) &&
+          !mod.type.toLowerCase().includes(q) &&
+          !mod.captureType.toLowerCase().includes(q)) {
+        return
+      }
       const group = mod.group || 'other'
       if (!groups[group]) groups[group] = []
       groups[group].push(mod)
     })
 
-    return Object.entries(groups).map(([key, modules]) => {
-      // Chunk into rows of 3
-      const rows: ModuleConfig[][] = []
-      for (let i = 0; i < modules.length; i += 3) {
-        rows.push(modules.slice(i, i + 3))
-      }
-      return {
-        title: GROUP_LABELS[key] || key,
-        data: rows,
-      }
-    })
-  }, [])
+    return Object.entries(groups)
+      .filter(([, modules]) => modules.length > 0)
+      .map(([key, modules]) => {
+        // Chunk into rows of 3
+        const rows: ModuleConfig[][] = []
+        for (let i = 0; i < modules.length; i += 3) {
+          rows.push(modules.slice(i, i + 3))
+        }
+        return {
+          title: GROUP_LABELS[key] || key,
+          data: rows,
+        }
+      })
+  }, [moduleSearch])
 
   // ── Child Selector ─────────────────────────────
 
@@ -455,6 +468,27 @@ export function ScreeningScreen({ navigation, route }: Props) {
         </View>
       )}
 
+      {/* Module Search Bar */}
+      <View style={styles.moduleSearchContainer}>
+        <View style={styles.moduleSearchRow}>
+          <Text style={styles.moduleSearchIcon}>{'\u{1F50D}'}</Text>
+          <TextInput
+            style={styles.moduleSearchInput}
+            placeholder="Search modules... (e.g. hearing, motor, vision)"
+            placeholderTextColor={colors.textMuted}
+            value={moduleSearch}
+            onChangeText={setModuleSearch}
+            autoCapitalize="none"
+            autoCorrect={false}
+          />
+          {moduleSearch.length > 0 && (
+            <TouchableOpacity onPress={() => setModuleSearch('')} style={styles.moduleSearchClear}>
+              <Text style={styles.moduleSearchClearText}>{'\u2715'}</Text>
+            </TouchableOpacity>
+          )}
+        </View>
+      </View>
+
       <SectionList
         sections={sections}
         keyExtractor={(item, index) => `row-${index}`}
@@ -636,6 +670,40 @@ const styles = StyleSheet.create({
   chipNameSelected: {
     color: colors.white,
     fontWeight: fontWeight.bold,
+  },
+  // Module search
+  moduleSearchContainer: {
+    paddingHorizontal: spacing.md,
+    paddingTop: spacing.sm,
+    paddingBottom: spacing.xs,
+    backgroundColor: colors.background,
+  },
+  moduleSearchRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: colors.surface,
+    borderRadius: borderRadius.md,
+    borderWidth: 1,
+    borderColor: colors.border,
+    paddingHorizontal: spacing.sm,
+    gap: spacing.xs,
+  },
+  moduleSearchIcon: {
+    fontSize: 16,
+  },
+  moduleSearchInput: {
+    flex: 1,
+    paddingVertical: 8,
+    fontSize: fontSize.sm,
+    color: colors.text,
+  },
+  moduleSearchClear: {
+    paddingHorizontal: 6,
+    paddingVertical: 4,
+  },
+  moduleSearchClearText: {
+    fontSize: fontSize.sm,
+    color: colors.textMuted,
   },
   // Module grid
   listContent: {
