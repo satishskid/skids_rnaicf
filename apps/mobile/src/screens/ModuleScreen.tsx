@@ -1032,6 +1032,7 @@ export function ModuleScreen({ navigation, route }: Props) {
             <HearingForm
               onResult={handleFormResult}
               childAge={ageMonths}
+              childName={childName || 'the child'}
               accentColor={bgColor}
             />
           </View>
