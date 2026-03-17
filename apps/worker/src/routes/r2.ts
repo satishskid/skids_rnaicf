@@ -120,7 +120,7 @@ r2Routes.get('/apk', async (c) => {
 
     const headers = new Headers()
     headers.set('Content-Type', 'application/vnd.android.package-archive')
-    headers.set('Content-Disposition', 'attachment; filename="SKIDS-Screen-3.1.0.apk"')
+    headers.set('Content-Disposition', 'attachment; filename="SKIDS-Screen-3.3.0.apk"')
     headers.set('Content-Length', obj.size.toString())
     headers.set('Cache-Control', 'no-cache')
 
