@@ -227,6 +227,8 @@ export function playTone(
       try { await FileSystem.deleteAsync(filePath, { idempotent: true }) } catch {}
     } catch (err) {
       console.warn('[ToneGenerator] Playback error:', err)
+      // Wait the intended duration even if audio fails (for UI timing)
+      await new Promise(r => setTimeout(r, durationMs))
     }
   })()
 

@@ -253,34 +253,48 @@ export function PictureHearingTest({ childName, onComplete, onCancel, accentColo
     tappedRef.current = false
     toneStartRef.current = Date.now()
 
+    // Minimum display time so cards stay visible even if audio fails on emulator
+    const minDisplayMs = 1500
     const tone = playTone(freq, currentDB, currentEar, 1000)
     toneRef.current = tone
 
     tone.promise.then(() => {
       if (tappedRef.current) return
-      setToneState('waiting')
 
-      // Timeout: no response = not heard
-      timeoutRef.current = setTimeout(() => {
+      const startResponsePhase = () => {
         if (tappedRef.current) return
+        setToneState('waiting')
 
-        // Record trial
-        setTrials(prev => [...prev, {
-          frequency: freq, ear: currentEar, dbHL: currentDB,
-          targetId: FREQ_TO_CHARACTER[freq]?.id ?? '',
-          selectedId: null, correct: false, responseTimeMs: null,
-        }])
+        // Timeout: no response = not heard
+        timeoutRef.current = setTimeout(() => {
+          if (tappedRef.current) return
 
-        if (currentDB >= MAX_DB) {
-          advanceToNext(MAX_DB + 5) // profound
-        } else {
-          setCurrentDB(prev => Math.min(prev + DB_UP, MAX_DB))
-          setHeardCountAtLevel(0)
-          setToneState('idle')
-          setSelectedCardId(null)
-          setShowFeedback(false)
-        }
-      }, RESPONSE_TIMEOUT_MS)
+          // Record trial
+          setTrials(prev => [...prev, {
+            frequency: freq, ear: currentEar, dbHL: currentDB,
+            targetId: FREQ_TO_CHARACTER[freq]?.id ?? '',
+            selectedId: null, correct: false, responseTimeMs: null,
+          }])
+
+          if (currentDB >= MAX_DB) {
+            advanceToNext(MAX_DB + 5) // profound
+          } else {
+            setCurrentDB(prev => Math.min(prev + DB_UP, MAX_DB))
+            setHeardCountAtLevel(0)
+            setToneState('idle')
+            setSelectedCardId(null)
+            setShowFeedback(false)
+          }
+        }, RESPONSE_TIMEOUT_MS)
+      }
+
+      // Ensure cards stay visible for minimum time even if audio fails fast
+      const elapsed = Date.now() - toneStartRef.current
+      if (elapsed < minDisplayMs) {
+        setTimeout(startResponsePhase, minDisplayMs - elapsed)
+      } else {
+        startResponsePhase()
+      }
     })
   }, [currentFreqIdx, currentDB, currentEar, prepareCards, advanceToNext])
 
@@ -347,10 +361,26 @@ export function PictureHearingTest({ childName, onComplete, onCancel, accentColo
   // ── Demo handlers ──
   const handleDemoPlay = useCallback((freq: TestFrequency, ear: Ear) => {
     prepareCards(freq)
+    setToneState('playing')
+
+    // Play tone but keep cards visible for at least 2s even if audio fails
+    const minDisplayMs = 2000
+    const startTime = Date.now()
     const tone = playDemoTone(freq, ear)
     toneRef.current = tone
-    setToneState('playing')
-    tone.promise.then(() => setToneState('idle'))
+
+    tone.promise.then(() => {
+      const elapsed = Date.now() - startTime
+      if (elapsed < minDisplayMs) {
+        // Audio finished/failed fast — keep cards visible a bit longer
+        setTimeout(() => setToneState('waiting'), minDisplayMs - elapsed)
+      } else {
+        setToneState('waiting')
+      }
+    }).catch(() => {
+      // Audio error — still show cards so child can practice tapping
+      setTimeout(() => setToneState('waiting'), minDisplayMs)
+    })
   }, [prepareCards])
 
   const handleDemoCardTap = useCallback((card: SoundCharacter, targetId: string) => {
