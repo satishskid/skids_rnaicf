@@ -24,4 +24,10 @@ config.resolver.extraNodeModules = {
   'react-native-gesture-handler': path.resolve(monorepoRoot, 'node_modules/react-native-gesture-handler'),
 };
 
+// CRITICAL: Block Metro from resolving modules from apps/web/node_modules
+// This prevents React 19.2.4 (web) from leaking into the mobile bundle
+config.resolver.blockList = [
+  /apps\/web\/node_modules\/.*/,
+];
+
 module.exports = config;
