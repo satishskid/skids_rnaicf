@@ -18,6 +18,9 @@ import * as FileSystem from 'expo-file-system'
 import * as jpeg from 'jpeg-js'
 import { Buffer } from 'buffer'
 
+// Fallback for EncodingType.Base64 — some standalone builds don't resolve it
+const BASE64_ENCODING = FileSystem.EncodingType?.Base64 ?? 'base64'
+
 // Import all on-device analysis functions
 import { analyzeRedReflex, analyzePhotoscreening } from './vision-screening'
 import { analyzeEarImage } from './ear-analysis'
@@ -62,7 +65,7 @@ async function imageUriToPixels(uri: string): Promise<{
 }> {
   // Read image as base64
   const base64 = await FileSystem.readAsStringAsync(uri, {
-    encoding: FileSystem.EncodingType.Base64,
+    encoding: BASE64_ENCODING,
   })
 
   // Decode base64 to buffer
@@ -369,7 +372,7 @@ export async function analyzeImageLLMPrimary(
   try {
     // Step 1: Read image as base64 for LLM
     const base64 = await FileSystem.readAsStringAsync(imageUri, {
-      encoding: FileSystem.EncodingType.Base64,
+      encoding: BASE64_ENCODING,
     })
 
     // Step 2: Quick quality gate from pixel data (non-blocking)

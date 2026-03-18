@@ -586,7 +586,7 @@ export function ModuleScreen({ navigation, route }: Props) {
       }
 
       // Build structured annotation record (Phase 7 — data annotation pipeline)
-      const obsId = payload.id as string || crypto.randomUUID()
+      const obsId = payload.id as string || `obs-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`
       const record = createAnnotationRecord(obsId, moduleType)
 
       // Populate quality gate data
