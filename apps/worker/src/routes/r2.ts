@@ -102,11 +102,7 @@ async function generatePresignedUrl(
 // ── GET /api/r2/apk — Authenticated APK download ──
 
 r2Routes.get('/apk', async (c) => {
-  const userId = c.get('userId')
-  if (!userId) {
-    return c.json({ error: 'Authentication required' }, 401)
-  }
-
+  // Public — no auth required for APK download
   try {
     const bucket = c.env.R2_BUCKET
     if (!bucket) {
@@ -194,6 +190,10 @@ r2Routes.post('/apk/upload', async (c) => {
 // ── POST /api/r2/presign ──
 
 r2Routes.post('/presign', async (c) => {
+  const userId = c.get('userId')
+  if (!userId) {
+    return c.json({ error: 'Unauthorized — please sign in' }, 401)
+  }
   try {
     const accessKeyId = c.env.CLOUDFLARE_R2_ACCESS_KEY_ID
     const secretAccessKey = c.env.CLOUDFLARE_R2_SECRET_ACCESS_KEY
