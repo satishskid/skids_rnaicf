@@ -1,146 +1,153 @@
-# SKIDS Ecosystem — Project Separation
+# SKIDS Ecosystem — Project Map
 
-> **CRITICAL**: These are TWO completely independent projects. Never mix them up.
+> **CRITICAL**: Two separate GitHub repos. Don't mix them up.
 
 ---
 
-## PROJECT 1: "SKIDS OPS" (V2 — Next.js PWA)
+## EVOLUTION TIMELINE
+
+```
+zpediscreen (v1 → v2.1)              skids-screen-v3 (v3.x)
+━━━━━━━━━━━━━━━━━━━━━━━              ━━━━━━━━━━━━━━━━━━━━━━
+Next.js monolith                      Hono + RN monorepo
+Vercel                                Cloudflare
+Started first                         Built later as rewrite
+Vercel Postgres                       Turso (libSQL)
+NextAuth                              Better Auth + PIN auth
+PWA (browser-based)                   Native APK + Worker API
+```
+
+The V2 (zpediscreen) was the **original project**. V3 (skids-screen-v3) was built as a **ground-up rewrite** with a different architecture. They are **two separate GitHub repos**, not branches of one.
+
+---
+
+## REPO 1: `zpediscreen` — "SKIDS OPS"
 
 | | Detail |
 |---|---|
-| **Name** | SKIDS OPS Portal |
-| **Repo** | `/Users/spr/Desktop/zpediscreen/` |
-| **Tech** | Next.js 14, Tailwind, shadcn/ui, TypeScript |
-| **Type** | Progressive Web App (PWA) — runs in browser |
-| **Deployed** | `https://skids-ops.pages.dev` and `https://skids-ai.vercel.app` |
-| **Database** | Vercel Postgres / Neon (NOT Turso) |
+| **Repo** | `github.com/satishskid/zpediscreen` → `/Users/spr/Desktop/zpediscreen/` |
+| **Version** | 2.1.0 |
+| **Tech** | Next.js 16, Tailwind, shadcn/ui, TypeScript |
+| **Hosting** | **Vercel** (+ Cloudflare Pages mirror at `skids-ops.pages.dev`) |
+| **Database** | Vercel Postgres / Neon |
 | **Auth** | NextAuth.js (email + password) |
-| **Purpose** | **Operations dashboard for admins, doctors, ops managers, authorities** |
+| **Type** | PWA — Progressive Web App (runs in browser, installable) |
+| **Deploy** | `vercel --prod` → `skids-ai.vercel.app` |
+| **Purpose** | Ops dashboard — campaign management, doctor review, analytics |
 
-### What SKIDS OPS does:
-- Campaign management (create, edit, monitor)
-- User management (CRUD, role assignment)
-- Doctor review inbox (approve/refer/retake observations)
-- Population health analytics
-- Clinical research (consent, instruments, studies)
-- Parent report release
-- APK download link (serves APK from its own infra)
-- Data export (CSV, FHIR)
+### What it does:
+- ✅ Campaign CRUD, child management
+- ✅ Doctor review inbox (approve/refer/retake)
+- ✅ Population health analytics, 4D reports
+- ✅ User management (admin panel)
+- ✅ Clinical research (consent, instruments, studies)
+- ✅ Parent portal (QR + DOB)
+- ✅ APK download link
+- ✅ Data export (CSV, FHIR)
 
-### Who uses SKIDS OPS:
-- **Admin** — Full access
-- **Ops Manager** — Campaign + assignment management
-- **Doctor** — Review inbox, clinical decisions
-- **Authority** — Read-only population health dashboards
-
-### SKIDS OPS does NOT do:
-- ❌ No field screening
-- ❌ No camera/mic capture
+### What it does NOT do:
+- ❌ No native camera/mic capture
 - ❌ No on-device AI
-- ❌ No offline mode
-- ❌ Not used by nurses in the field
+- ❌ No offline screening
+- ❌ No field screening workflow
+- ❌ Not a native mobile app
+
+### Who uses it:
+- **Admin** — full access
+- **Ops Manager** — campaign + assignment management
+- **Doctor** — review inbox, clinical decisions
+- **Authority** — read-only population health
 
 ---
 
-## PROJECT 2: "SKIDS SCREEN" (V3 — React Native + Hono)
+## REPO 2: `skids-screen-v3` — "SKIDS SCREEN"
 
 | | Detail |
 |---|---|
-| **Name** | SKIDS Screen (Screening App + API + Web) |
-| **Repo** | `/Users/spr/Desktop/skids-screen-v3/` |
+| **Repo** | `github.com/satishskid/skids-screen-v3` → `/Users/spr/Desktop/skids-screen-v3/` |
+| **Version** | 3.3.0 (mobile), 3.1.0 (monorepo) |
 | **Tech** | Monorepo: React Native (Expo) + Hono (CF Workers) + Vite SPA |
-| **Type** | Mobile APK (Android) + Worker API + Lightweight web dashboard |
-| **Deployed** | API: `skids-api.satish-9f4.workers.dev`, Web: `skids-web.pages.dev` |
+| **Hosting** | **Cloudflare** (Workers + Pages + R2) — NO Vercel |
 | **Database** | Turso (libSQL/SQLite) |
 | **Auth** | Better Auth (web) + PIN auth (mobile) |
-| **Purpose** | **Field screening app for nurses + supporting API** |
+| **Type** | Native Android APK + REST API + Lightweight web |
+| **Deploy** | `wrangler deploy` (API), `wrangler pages deploy` (web) |
+| **Purpose** | Field screening by nurses + API backend |
 
-### SKIDS SCREEN has 3 sub-apps:
+### Three sub-apps in the monorepo:
 
-#### 2A. Mobile App (`apps/mobile/`)
-- Android APK installed on nurse's phone
-- 27 screening modules (photo, video, audio, value, form)
-- On-device AI (ONNX, pixel analysis, WHO Z-scores)
-- Offline-first with sync queue
-- PIN login (4-digit + org code)
+| Sub-app | Path | Tech | Deployed at |
+|---------|------|------|-------------|
+| **SCREEN** (Mobile) | `apps/mobile/` | React Native + Expo | APK on nurse's phone |
+| **API** (Backend) | `apps/worker/` | Hono on CF Workers | `skids-api.satish-9f4.workers.dev` |
+| **WEB** (Dashboard) | `apps/web/` | Vite + React SPA | `skids-web.pages.dev` |
 
-#### 2B. Worker API (`apps/worker/`)
-- Cloudflare Workers (Hono framework)
-- REST API for all CRUD operations
-- Turso database
-- R2 media storage
-- Better Auth sessions
-- AI gateway (Gemini, Cloudflare AI)
+### What it does:
+- ✅ 27 screening modules (photo, video, audio, value, form)
+- ✅ On-device AI (ONNX, pixel analysis, WHO Z-scores)
+- ✅ Offline-first with sync queue
+- ✅ PIN login for nurses
+- ✅ Camera, microphone, NFC, Bluetooth
+- ✅ AyuSync device integration (stethoscope)
+- ✅ Quality gate (blur, exposure, framing)
+- ✅ R2 media storage
+- ✅ Lightweight web dashboard (mirrors some OPS features)
 
-#### 2C. Web Dashboard (`apps/web/`)
-- Lightweight Vite SPA (React)
-- Mirrors some SKIDS OPS features (dashboard, campaigns, doctor inbox)
-- Used for quick access when full OPS portal isn't needed
-- Deployed at `skids-web.pages.dev`
-
-### Who uses SKIDS SCREEN:
-- **Nurse** — Mobile APK for field screening
-- **Doctor** — Web dashboard for quick reviews
-- **Admin** — Web dashboard for campaign monitoring
+### Who uses it:
+- **Nurse** — Mobile APK for field screening (primary user)
+- **Doctor** — Web dashboard for quick reviews (secondary)
+- **Admin** — Web dashboard for campaign monitoring (secondary)
 
 ---
 
-## HOW THEY CONNECT
+## INFRASTRUCTURE COMPARISON
 
 ```
-  SKIDS OPS (V2)                    SKIDS SCREEN (V3)
-  ┌────────────────┐               ┌────────────────────────┐
-  │ Next.js PWA    │               │  ┌──────────────────┐  │
-  │                │               │  │ 📱 Mobile APK    │  │
-  │ skids-ops.     │               │  │ (Nurse screening)│  │
-  │ pages.dev      │               │  └────────┬─────────┘  │
-  │                │               │           │             │
-  │ Admin dashboard│               │  ┌────────▼─────────┐  │
-  │ Doctor inbox   │               │  │ ⚡ Worker API     │  │
-  │ Analytics      │  ◄── reads ── │  │ skids-api.       │  │
-  │ Studies        │  ── same DB → │  │ workers.dev      │  │
-  │ User mgmt     │               │  └────────┬─────────┘  │
-  │                │               │           │             │
-  │ Serves APK     │               │  ┌────────▼─────────┐  │
-  │ download too   │               │  │ 🗄️ Turso DB      │  │
-  │                │               │  │ 📦 R2 Media      │  │
-  └────────────────┘               │  └──────────────────┘  │
-                                   │                        │
-                                   │  ┌──────────────────┐  │
-                                   │  │ 🖥️ Web Dashboard  │  │
-                                   │  │ skids-web.        │  │
-                                   │  │ pages.dev         │  │
-                                   │  │ (lightweight)     │  │
-                                   │  └──────────────────┘  │
-                                   └────────────────────────┘
+SKIDS OPS (zpediscreen)              SKIDS SCREEN (skids-screen-v3)
+━━━━━━━━━━━━━━━━━━━━━━               ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  ┌──────────────┐                     ┌──────────────┐
+  │  Vercel      │                     │  Cloudflare  │
+  │  ┌────────┐  │                     │  ┌────────┐  │
+  │  │Next.js │  │                     │  │ Worker │  │
+  │  │  PWA   │  │                     │  │ (Hono) │  │
+  │  └────┬───┘  │                     │  └────┬───┘  │
+  │       │      │                     │       │      │
+  │  ┌────▼───┐  │                     │  ┌────▼───┐  │
+  │  │Vercel  │  │                     │  │ Turso  │  │
+  │  │Postgres│  │                     │  │(libSQL)│  │
+  │  └────────┘  │                     │  └────────┘  │
+  └──────────────┘                     │       │      │
+                                       │  ┌────▼───┐  │
+  URLs:                                │  │  R2    │  │
+  • skids-ai.vercel.app               │  │(media) │  │
+  • skids-ops.pages.dev               │  └────────┘  │
+                                       │              │
+                                       │  ┌────────┐  │
+                                       │  │ Pages  │  │
+                                       │  │(Vite)  │  │
+                                       │  └────────┘  │
+                                       └──────────────┘
+
+                                       URLs:
+                                       • skids-api.satish-9f4.workers.dev
+                                       • skids-web.pages.dev
+                                       • APK on phone
 ```
 
 ---
 
-## QUICK REFERENCE
+## NAMING CONVENTION
 
-| Question | Answer |
-|----------|--------|
-| "Where do I create campaigns?" | SKIDS OPS (V2) or SKIDS SCREEN Web (V3) |
-| "Where does screening happen?" | SKIDS SCREEN Mobile APK (V3) only |
-| "Where does the doctor review?" | SKIDS OPS (V2) — primary; SKIDS SCREEN Web (V3) — secondary |
-| "Where are users managed?" | SKIDS OPS (V2) — admin panel |
-| "Where does the nurse log in?" | SKIDS SCREEN Mobile APK (V3) — PIN pad |
-| "Where is population health?" | SKIDS OPS (V2) |
-| "Where is the APK download?" | Both — SKIDS OPS sidebar link + SKIDS SCREEN `/api/r2/apk` |
-| "Which DB has the data?" | Turso (V3 Worker writes to it, V2 reads from it) |
+Always use these names to avoid confusion:
 
----
-
-## NAMING CONVENTION (use these consistently)
-
-| Short Name | Full Name | Repo Path | URL |
-|------------|-----------|-----------|-----|
-| **OPS** | SKIDS OPS Portal | `/Users/spr/Desktop/zpediscreen/` | skids-ops.pages.dev |
-| **SCREEN** | SKIDS Screen App | `/Users/spr/Desktop/skids-screen-v3/apps/mobile/` | APK on phone |
-| **API** | SKIDS Screen API | `/Users/spr/Desktop/skids-screen-v3/apps/worker/` | skids-api.workers.dev |
-| **WEB** | SKIDS Screen Web | `/Users/spr/Desktop/skids-screen-v3/apps/web/` | skids-web.pages.dev |
-| **DB** | SKIDS Database | `/Users/spr/Desktop/skids-screen-v3/packages/db/` | Turso cloud |
+| Short Name | Meaning | Repo | Infra |
+|------------|---------|------|-------|
+| **OPS** | SKIDS OPS Portal (PWA) | zpediscreen | Vercel |
+| **SCREEN** | SKIDS Screen Mobile App | skids-screen-v3/apps/mobile | APK |
+| **API** | SKIDS Screen Backend | skids-screen-v3/apps/worker | Cloudflare Workers |
+| **WEB** | SKIDS Screen Web Dashboard | skids-screen-v3/apps/web | Cloudflare Pages |
+| **DB** | SKIDS Database | skids-screen-v3/packages/db | Turso |
 
 ---
 
@@ -148,7 +155,8 @@
 
 | Project | Command | Result |
 |---------|---------|--------|
-| OPS (V2) | `cd zpediscreen && vercel --prod` | skids-ops.pages.dev |
-| API (V3) | `cd skids-screen-v3/apps/worker && wrangler deploy` | skids-api.workers.dev |
-| WEB (V3) | `cd skids-screen-v3/apps/web && pnpm build && wrangler pages deploy dist` | skids-web.pages.dev |
-| SCREEN (V3) | `cd skids-screen-v3/apps/mobile/android && ./gradlew assembleDebug` | APK file |
+| **OPS** | `cd zpediscreen && vercel --prod` | skids-ai.vercel.app |
+| **API** | `cd skids-screen-v3/apps/worker && wrangler deploy` | skids-api.workers.dev |
+| **WEB** | `cd skids-screen-v3/apps/web && pnpm build && wrangler pages deploy dist` | skids-web.pages.dev |
+| **SCREEN** | `cd skids-screen-v3/apps/mobile/android && ./gradlew assembleDebug` | APK file |
+| **DB** | `cd skids-screen-v3/packages/db && turso db shell` | SQL access |
