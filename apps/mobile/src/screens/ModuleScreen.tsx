@@ -39,7 +39,9 @@ import { BehavioralForm } from '../components/BehavioralForm'
 import { AyuSyncLauncher } from '../components/AyuSyncLauncher'
 import { extractFromDevice, type DeviceType } from '../lib/ai/ocr-engine'
 import { extractFaceSignalFromPixels, computeHeartRateCHROM, type RGBSample } from '../lib/ai/rppg'
-import * as FileSystem from 'expo-file-system'
+import * as FileSystem from 'expo-file-system/legacy'
+// Fallback for EncodingType.Base64 — some standalone builds don't resolve it
+const BASE64_ENCODING = FileSystem.EncodingType?.Base64 ?? ('base64' as const)
 // Annotation utilities — inlined from @skids/shared to avoid Metro resolution issues
 function createAnnotationRecord(observationId: string, moduleType: string) {
   return {
@@ -250,7 +252,7 @@ export function ModuleScreen({ navigation, route }: Props) {
         // Read video frames as images — for now extract a single frame for face signal
         // In production this would use expo-av to extract multiple frames at ~30fps
         const base64 = await FileSystem.readAsStringAsync(capturedUri, {
-          encoding: FileSystem.EncodingType.Base64,
+          encoding: BASE64_ENCODING,
         })
 
         // Try to decode first frame for face detection

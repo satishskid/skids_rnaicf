@@ -9,6 +9,9 @@
  * Output: Structured annotation record with findings, confidence, heatmap, reasoning.
  */
 
+// Safe timing fallback
+const now = (): number => typeof performance !== 'undefined' ? performance.now() : Date.now()
+
 // ── Types ──
 
 export interface QualityGateResult {
@@ -193,7 +196,7 @@ export async function runPipeline(
   tier2Fn: (pixels: Uint8Array, width: number, height: number) => Promise<AITierResult>,
   tier3Fn?: (imageBase64: string, tier2Result: AITierResult) => Promise<AITierResult>,
 ): Promise<PipelineResult> {
-  const startTime = performance.now()
+  const startTime = now()
   const tiers: AITierResult[] = []
 
   // Step 1: Quality Gate
@@ -208,7 +211,7 @@ export async function runPipeline(
       finalFindings: [],
       finalConfidence: 0,
       finalRisk: 'normal',
-      totalInferenceMs: Math.round(performance.now() - startTime),
+      totalInferenceMs: Math.round(now() - startTime),
       offlineCapable: true,
     }
   }
@@ -269,7 +272,7 @@ export async function runPipeline(
     finalFindings,
     finalConfidence,
     finalRisk,
-    totalInferenceMs: Math.round(performance.now() - startTime),
+    totalInferenceMs: Math.round(now() - startTime),
     offlineCapable: tiers.every(t => t.tier <= 2),
     heatmapBase64,
   }

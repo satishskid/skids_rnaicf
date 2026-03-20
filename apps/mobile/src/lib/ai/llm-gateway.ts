@@ -14,6 +14,9 @@
 
 import AsyncStorage from '@react-native-async-storage/async-storage'
 
+// Safe timing — Hermes 0.76+ has now(), but fallback to Date.now() just in case
+const now = (): number => typeof performance !== 'undefined' ? performance.now() : Date.now()
+
 export type AIMode = 'local_only' | 'local_first' | 'cloud_first' | 'dual'
 export type CloudProvider = 'gemini' | 'claude' | 'gpt4o' | 'groq'
 
@@ -461,7 +464,7 @@ export function parseVisionAnalysis(responseText: string): VisionAnalysisResult 
 // ── Ollama local LLM ──
 
 async function callOllama(config: LLMConfig, messages: LLMMessage[]): Promise<LLMResponse> {
-  const startTime = performance.now()
+  const startTime = now()
   try {
     const ollamaMessages = messages.map(m => ({
       role: m.role,
@@ -477,9 +480,9 @@ async function callOllama(config: LLMConfig, messages: LLMMessage[]): Promise<LL
 
     if (!res.ok) throw new Error(`Ollama: ${res.status} ${res.statusText}`)
     const data = await res.json()
-    return { text: data.message?.content || '', provider: 'ollama', model: config.ollamaModel, tokensUsed: data.eval_count, latencyMs: Math.round(performance.now() - startTime) }
+    return { text: data.message?.content || '', provider: 'ollama', model: config.ollamaModel, tokensUsed: data.eval_count, latencyMs: Math.round(now() - startTime) }
   } catch (err) {
-    return { text: '', provider: 'ollama', model: config.ollamaModel, latencyMs: Math.round(performance.now() - startTime), error: err instanceof Error ? err.message : 'Ollama connection failed' }
+    return { text: '', provider: 'ollama', model: config.ollamaModel, latencyMs: Math.round(now() - startTime), error: err instanceof Error ? err.message : 'Ollama connection failed' }
   }
 }
 
@@ -495,7 +498,7 @@ function getCloudModelId(provider: CloudProvider): string {
 }
 
 async function callCloudGateway(config: LLMConfig, messages: LLMMessage[]): Promise<LLMResponse> {
-  const startTime = performance.now()
+  const startTime = now()
   if (!config.cloudGatewayUrl) {
     return { text: '', provider: config.cloudProvider, model: config.cloudProvider, latencyMs: 0, error: 'Cloud AI not configured.' }
   }
@@ -536,13 +539,13 @@ async function callCloudGateway(config: LLMConfig, messages: LLMMessage[]): Prom
           provider: 'gemini' as const,
           model: 'gemini-2.0-flash',
           tokensUsed: data.tokensUsed as number | undefined,
-          latencyMs: Math.round(performance.now() - startTime),
+          latencyMs: Math.round(now() - startTime),
         }
       }
 
-      return { text: '', provider: 'gemini' as const, model: 'gemini-2.0-flash', latencyMs: Math.round(performance.now() - startTime), error: data.error || 'Empty response' }
+      return { text: '', provider: 'gemini' as const, model: 'gemini-2.0-flash', latencyMs: Math.round(now() - startTime), error: data.error || 'Empty response' }
     } catch (err) {
-      return { text: '', provider: 'gemini' as const, model: 'gemini-2.0-flash', latencyMs: Math.round(performance.now() - startTime), error: err instanceof Error ? err.message : 'Cloud vision failed' }
+      return { text: '', provider: 'gemini' as const, model: 'gemini-2.0-flash', latencyMs: Math.round(now() - startTime), error: err instanceof Error ? err.message : 'Cloud vision failed' }
     }
   }
 
@@ -566,9 +569,9 @@ async function callCloudGateway(config: LLMConfig, messages: LLMMessage[]): Prom
     const data = await res.json()
     const text = data.choices?.[0]?.message?.content || data.content?.[0]?.text || data.candidates?.[0]?.content?.parts?.[0]?.text || data.result ? JSON.stringify(data.result) : ''
 
-    return { text, provider: config.cloudProvider, model: getCloudModelId(config.cloudProvider), tokensUsed: data.usage?.total_tokens, latencyMs: Math.round(performance.now() - startTime) }
+    return { text, provider: config.cloudProvider, model: getCloudModelId(config.cloudProvider), tokensUsed: data.usage?.total_tokens, latencyMs: Math.round(now() - startTime) }
   } catch (err) {
-    return { text: '', provider: config.cloudProvider, model: getCloudModelId(config.cloudProvider), latencyMs: Math.round(performance.now() - startTime), error: err instanceof Error ? err.message : 'Cloud request failed' }
+    return { text: '', provider: config.cloudProvider, model: getCloudModelId(config.cloudProvider), latencyMs: Math.round(now() - startTime), error: err instanceof Error ? err.message : 'Cloud request failed' }
   }
 }
 

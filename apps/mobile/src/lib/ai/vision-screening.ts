@@ -19,6 +19,9 @@
  *   - Astigmatism risk — oblique crescent orientation
  */
 
+// Safe timing fallback
+const now = (): number => typeof performance !== 'undefined' ? performance.now() : Date.now()
+
 import type { AITierResult, AIFinding } from './pipeline'
 import { loadModel, runInference, preprocessPixels } from './model-loader-mobile'
 
@@ -421,7 +424,7 @@ export function runRuleBasedAnalysis(
   width: number,
   height: number
 ): AITierResult {
-  const startTime = performance.now()
+  const startTime = now()
 
   const redReflex = analyzeRedReflex(pixels, width, height)
   const crescents = analyzeCrescents(pixels, width, height)
@@ -557,7 +560,7 @@ export function runRuleBasedAnalysis(
     confidence: findings.length > 0
       ? Math.min(0.6, findings.reduce((s, f) => s + f.confidence, 0) / findings.length)
       : 0.5,
-    inferenceMs: Math.round(performance.now() - startTime),
+    inferenceMs: Math.round(now() - startTime),
   }
 }
 
@@ -570,7 +573,7 @@ export async function runMLAnalysis(
   height: number,
   onModelProgress?: (progress: { loaded: number; total: number; percent: number }) => void,
 ): Promise<AITierResult> {
-  const startTime = performance.now()
+  const startTime = now()
 
   // First, run rule-based as baseline
   const ruleResult = runRuleBasedAnalysis(pixels, width, height)
@@ -665,7 +668,7 @@ export async function runMLAnalysis(
     provider: modelFindings.length > 0 ? 'mobilenet-v2 + rules' : 'rule-based-only',
     findings: mergedFindings,
     confidence: overallConfidence,
-    inferenceMs: Math.round(performance.now() - startTime),
+    inferenceMs: Math.round(now() - startTime),
     reasoning: modelFindings.length > 0
       ? `Model detected ${modelFindings.length} findings, rules detected ${ruleResult.findings.length}`
       : 'ML model loaded but no findings above threshold',
@@ -684,7 +687,7 @@ export async function analyzePhotoscreening(
   height: number,
   onModelProgress?: (progress: { loaded: number; total: number; percent: number }) => void,
 ): Promise<PhotoscreenResult> {
-  const startTime = performance.now()
+  const startTime = now()
 
   const redReflex = analyzeRedReflex(pixels, width, height)
   const crescentAnalysis = analyzeCrescents(pixels, width, height)
@@ -716,6 +719,6 @@ export async function analyzePhotoscreening(
     crescentAnalysis,
     redReflex,
     overallRisk,
-    inferenceTimeMs: Math.round(performance.now() - startTime),
+    inferenceTimeMs: Math.round(now() - startTime),
   }
 }

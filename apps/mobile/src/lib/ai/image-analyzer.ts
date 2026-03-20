@@ -14,12 +14,15 @@
  *   - General: Clinical color analysis (pallor, cyanosis, jaundice)
  */
 
-import * as FileSystem from 'expo-file-system'
+import * as FileSystem from 'expo-file-system/legacy'
 import * as jpeg from 'jpeg-js'
 import { Buffer } from 'buffer'
 
 // Fallback for EncodingType.Base64 — some standalone builds don't resolve it
 const BASE64_ENCODING = FileSystem.EncodingType?.Base64 ?? 'base64'
+
+// Safe timing — Hermes 0.76+ has now(), but fallback to Date.now()
+const now = (): number => typeof performance !== 'undefined' ? performance.now() : Date.now()
 
 // Import all on-device analysis functions
 import { analyzeRedReflex, analyzePhotoscreening } from './vision-screening'
@@ -116,7 +119,7 @@ export async function analyzeImageOnDevice(
   imageUri: string,
   moduleType: string,
 ): Promise<ImageAnalysisResult> {
-  const startTime = performance.now()
+  const startTime = now()
   const analysisType = getAnalysisType(moduleType)
 
   try {
@@ -294,7 +297,7 @@ export async function analyzeImageOnDevice(
       }
     }
 
-    const inferenceMs = Math.round(performance.now() - startTime)
+    const inferenceMs = Math.round(now() - startTime)
 
     return {
       aiResult: {
@@ -309,7 +312,7 @@ export async function analyzeImageOnDevice(
       inferenceMs,
     }
   } catch (err) {
-    const inferenceMs = Math.round(performance.now() - startTime)
+    const inferenceMs = Math.round(now() - startTime)
     console.warn('On-device image analysis failed:', err)
 
     return {
@@ -363,7 +366,7 @@ export async function analyzeImageLLMPrimary(
   nurseChips?: string[],
   chipSeverities?: Record<string, string>,
 ): Promise<ImageAnalysisResult | LLMPrimaryAnalysisResult> {
-  const startTime = performance.now()
+  const startTime = now()
   const analysisType = getAnalysisType(moduleType)
 
   // Run pixel analysis and LLM in parallel — use whichever succeeds with better result
@@ -412,7 +415,7 @@ export async function analyzeImageLLMPrimary(
 
     // Step 5: Parse structured response
     const visionResult = parseVisionAnalysis(bestResponse.text)
-    const inferenceMs = Math.round(performance.now() - startTime)
+    const inferenceMs = Math.round(now() - startTime)
 
     if (!visionResult || visionResult.findings.length === 0) {
       // LLM returned empty — check if pixel analysis found something
@@ -506,7 +509,7 @@ export async function analyzeImageLLMPrimary(
       return pixelResult
     }
 
-    const inferenceMs = Math.round(performance.now() - startTime)
+    const inferenceMs = Math.round(now() - startTime)
     return {
       aiResult: {
         classification: 'Unknown',

@@ -8,7 +8,7 @@
  */
 
 import * as VideoThumbnails from 'expo-video-thumbnails'
-import * as FileSystem from 'expo-file-system'
+import * as FileSystem from 'expo-file-system/legacy'
 import { runQualityGate } from './ai/quality-gate'
 
 export interface ExtractedFrame {

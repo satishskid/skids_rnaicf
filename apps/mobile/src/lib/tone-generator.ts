@@ -11,7 +11,7 @@
  */
 
 import { Audio } from 'expo-av'
-import * as FileSystem from 'expo-file-system'
+import * as FileSystem from 'expo-file-system/legacy'
 import type { Ear } from './ai/audiometry'
 
 // ── Constants ──
@@ -210,10 +210,12 @@ export function playTone(
         return
       }
 
-      // Wait for playback to finish
+      // Wait for playback to finish (with timeout to prevent hanging on broken audio)
       await new Promise<void>((resolve) => {
+        const timeout = setTimeout(resolve, durationMs + 2000)
         s.setOnPlaybackStatusUpdate((status) => {
           if (status.isLoaded && status.didJustFinish) {
+            clearTimeout(timeout)
             resolve()
           }
         })
