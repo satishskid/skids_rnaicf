@@ -32,6 +32,27 @@ export interface ModuleProgress {
   percentage: number
 }
 
+export type ChildScreeningStatus =
+  | 'to_screen'      // Enrolled, no observations
+  | 'absent'         // Marked absent
+  | 'in_progress'    // Some modules done, not all
+  | 'screened'       // All enabled modules done
+  | 'under_review'   // Has observations, awaiting review
+  | 'complete'       // All reviewed, no follow-ups
+  | 'retake'         // Doctor flagged for re-screening
+  | 'referred'       // Doctor referred
+
+export interface ChildProgress {
+  childId: string
+  childName: string
+  status: ChildScreeningStatus
+  completedModules: string[]
+  totalModules: number
+  retakeModules: string[]
+  hasReferral: boolean
+  observationCount: number
+}
+
 export interface CampaignProgress {
   totalChildren: number
   registeredChildren: number
@@ -41,6 +62,7 @@ export interface CampaignProgress {
   referredChildren: number
   completedChildren: number
 
+  childProgress: ChildProgress[]
   pipeline: PipelineStage[]
   nurseActivity: NurseActivity[]
   moduleProgress: ModuleProgress[]
@@ -111,25 +133,58 @@ export function computeCampaignDashboard(
   let referred = 0
   let completed = 0
 
+  const childProgressList: ChildProgress[] = []
+
   for (const child of children) {
     const childObs = obsByChild[child.id] || []
-    if (childObs.length === 0) continue
-    screened++
+    const completedModules = [...new Set(childObs.map(o => o.moduleType))]
+    const allModulesDone = enabledModules.every(m => completedModules.includes(m))
 
-    // Check if all enabled modules have at least one observation
-    const completedModules = new Set(childObs.map(o => o.moduleType))
-    const allModulesDone = enabledModules.every(m => completedModules.has(m))
-    if (allModulesDone) fullyScreened++
-
-    // Check reviews
-    const allReviewed = childObs.every(o => reviews[o.id])
+    // Review analysis
+    const hasAnyReview = childObs.some(o => reviews[o.id])
+    const allReviewed = childObs.length > 0 && childObs.every(o => reviews[o.id])
     const hasReferral = childObs.some(o => reviews[o.id]?.decision === 'refer')
+    const hasRetake = childObs.some(o => reviews[o.id]?.decision === 'retake')
+    const hasFollowUp = childObs.some(o => reviews[o.id]?.decision === 'follow_up')
+    const retakeModules = childObs
+      .filter(o => reviews[o.id]?.decision === 'retake')
+      .map(o => o.moduleType)
 
+    // Determine lifecycle status
+    let status: ChildScreeningStatus = 'to_screen'
+    if (childObs.length === 0) {
+      status = 'to_screen'
+    } else if (hasRetake) {
+      status = 'retake'
+    } else if (hasReferral && allReviewed) {
+      status = 'referred'
+    } else if (allReviewed && !hasFollowUp) {
+      status = 'complete'
+    } else if (hasAnyReview || allModulesDone) {
+      status = 'under_review'
+    } else if (allModulesDone) {
+      status = 'screened'
+    } else {
+      status = 'in_progress'
+    }
+
+    // Update aggregate counts
+    if (childObs.length > 0) screened++
+    if (allModulesDone) fullyScreened++
     if (allReviewed) reviewed++
     if (hasReferral) referred++
-    if (allReviewed && !childObs.some(o => reviews[o.id]?.decision === 'follow_up')) {
-      completed++
-    }
+    if (allReviewed && !hasFollowUp) completed++
+
+    childProgressList.push({
+      childId: child.id,
+      childName: child.name,
+      status,
+      completedModules,
+      totalModules: enabledModules.length,
+      retakeModules,
+      hasReferral,
+      observationCount: childObs.length,
+    })
   }
 
   // Pipeline stages
@@ -202,6 +257,7 @@ export function computeCampaignDashboard(
     reviewedChildren: reviewed,
     referredChildren: referred,
     completedChildren: completed,
+    childProgress: childProgressList,
     pipeline,
     nurseActivity,
     moduleProgress,
@@ -228,6 +284,7 @@ function emptyProgress(): CampaignProgress {
     reviewedChildren: 0,
     referredChildren: 0,
     completedChildren: 0,
+    childProgress: [],
     pipeline: [
       { name: 'Registered', count: 0, percentage: 0, color: '#94a3b8' },
       { name: 'Screened', count: 0, percentage: 0, color: '#3b82f6' },

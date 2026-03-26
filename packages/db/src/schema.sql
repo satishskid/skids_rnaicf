@@ -26,7 +26,9 @@ CREATE TABLE IF NOT EXISTS campaigns (
   lat REAL,
   lng REAL,
   metadata TEXT,  -- JSON for flexible fields
-  reports_released INTEGER DEFAULT 0  -- 0 = not released, 1 = parent reports available
+  reports_released INTEGER DEFAULT 0,  -- 0 = not released, 1 = parent reports available
+  archive_url TEXT,     -- R2 key for archived campaign JSON
+  archived_by TEXT      -- User who archived
 );
 
 -- Children (patients)

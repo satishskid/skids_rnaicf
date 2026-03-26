@@ -369,69 +369,114 @@ campaignRoutes.post('/:code/release-reports', async (c) => {
   }
 })
 
-// Archive campaign
+// Archive campaign — serialize to R2 + mark archived in DB
 campaignRoutes.post('/:code/archive', async (c) => {
   const db = c.get('db')
   const code = c.req.param('code')
+  const userId = c.get('userId')
 
-  // Set status to archived
+  // Gather all data in parallel
+  const [campaignRow, childRows, obsRows, reviewRows, trainingRows, absenceRows] = await Promise.all([
+    db.execute({ sql: 'SELECT * FROM campaigns WHERE code = ?', args: [code] }),
+    db.execute({ sql: 'SELECT * FROM children WHERE campaign_code = ?', args: [code] }),
+    db.execute({ sql: 'SELECT * FROM observations WHERE campaign_code = ?', args: [code] }),
+    db.execute({ sql: 'SELECT * FROM reviews WHERE campaign_code = ?', args: [code] }),
+    db.execute({ sql: 'SELECT * FROM training_samples WHERE campaign_code = ?', args: [code] }),
+    db.execute({ sql: 'SELECT * FROM absences WHERE campaign_code = ?', args: [code] }),
+  ])
+
+  const campaign = campaignRow.rows[0]
+  if (!campaign) return c.json({ error: 'Campaign not found' }, 404)
+
+  const archivedAt = new Date().toISOString()
+  const archiveData = {
+    campaign,
+    children: childRows.rows,
+    observations: obsRows.rows,
+    reviews: reviewRows.rows,
+    trainingSamples: trainingRows.rows,
+    absences: absenceRows.rows,
+    archivedAt,
+    archivedBy: userId,
+  }
+
+  // Upload to R2 if bucket binding is available
+  let archiveUrl: string | null = null
+  const archiveKey = `archives/${code}/${archivedAt.replace(/[:.]/g, '-')}.json`
+  try {
+    const r2 = (c.env as any).R2_BUCKET
+    if (r2) {
+      await r2.put(archiveKey, JSON.stringify(archiveData), {
+        httpMetadata: { contentType: 'application/json' },
+      })
+      archiveUrl = archiveKey
+    }
+  } catch (err) {
+    console.error('R2 archive upload failed:', err)
+    // Continue — archive still succeeds in DB
+  }
+
+  // Mark archived in DB
   await db.execute({
-    sql: "UPDATE campaigns SET status = 'archived', completed_at = datetime('now') WHERE code = ?",
-    args: [code],
-  })
-
-  // Count what was archived
-  const stats = await db.execute({
-    sql: `SELECT
-            (SELECT COUNT(*) FROM children WHERE campaign_code = ?) as children,
-            (SELECT COUNT(*) FROM observations WHERE campaign_code = ?) as observations,
-            (SELECT COUNT(*) FROM reviews WHERE campaign_code = ?) as reviews`,
-    args: [code, code, code],
+    sql: `UPDATE campaigns SET status = 'archived', completed_at = datetime('now'),
+          archive_url = ?, archived_by = ? WHERE code = ?`,
+    args: [archiveUrl, userId, code],
   })
 
   return c.json({
     code,
     status: 'archived',
-    archivedAt: new Date().toISOString(),
+    archivedAt,
+    archiveKey,
     stats: {
-      children: stats.rows[0]?.children || 0,
-      observations: stats.rows[0]?.observations || 0,
-      reviews: stats.rows[0]?.reviews || 0,
+      children: childRows.rows.length,
+      observations: obsRows.rows.length,
+      reviews: reviewRows.rows.length,
+      trainingSamples: trainingRows.rows.length,
+      absences: absenceRows.rows.length,
     },
-    message: 'Campaign archived',
   })
 })
 
-// Recall archived campaign
+// Recall archived campaign — try R2 first, then DB
 campaignRoutes.get('/:code/recall', async (c) => {
   const db = c.get('db')
   const code = c.req.param('code')
 
-  // Get campaign
-  const campaign = await db.execute({
+  const campaignRow = await db.execute({
     sql: 'SELECT * FROM campaigns WHERE code = ?',
     args: [code],
   })
-  if (campaign.rows.length === 0) {
-    return c.json({ error: 'Campaign not found' }, 404)
+  if (campaignRow.rows.length === 0) return c.json({ error: 'Campaign not found' }, 404)
+
+  const campaign = campaignRow.rows[0] as any
+
+  // Try R2 archive first
+  if (campaign.archive_url) {
+    try {
+      const r2 = (c.env as any).R2_BUCKET
+      if (r2) {
+        const obj = await r2.get(campaign.archive_url)
+        if (obj) {
+          const archiveData = JSON.parse(await obj.text())
+          return c.json({ source: 'r2', ...archiveData, recalledAt: new Date().toISOString() })
+        }
+      }
+    } catch (err) {
+      console.error('R2 recall failed, falling back to DB:', err)
+    }
   }
 
-  // Get all related data
-  const children = await db.execute({
-    sql: 'SELECT * FROM children WHERE campaign_code = ?',
-    args: [code],
-  })
-  const observations = await db.execute({
-    sql: 'SELECT * FROM observations WHERE campaign_code = ?',
-    args: [code],
-  })
-  const reviews = await db.execute({
-    sql: 'SELECT * FROM reviews WHERE campaign_code = ?',
-    args: [code],
-  })
+  // Fallback: read from DB
+  const [children, observations, reviews] = await Promise.all([
+    db.execute({ sql: 'SELECT * FROM children WHERE campaign_code = ?', args: [code] }),
+    db.execute({ sql: 'SELECT * FROM observations WHERE campaign_code = ?', args: [code] }),
+    db.execute({ sql: 'SELECT * FROM reviews WHERE campaign_code = ?', args: [code] }),
+  ])
 
   return c.json({
-    campaign: campaign.rows[0],
+    source: 'database',
+    campaign,
     children: children.rows,
     observations: observations.rows,
     reviews: reviews.rows,
