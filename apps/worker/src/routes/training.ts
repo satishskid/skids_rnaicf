@@ -64,6 +64,14 @@ trainingRoutes.get('/training/export', async (c) => {
   const moduleType = c.req.query('module')
   const stripPhi = c.req.query('strip_phi') !== 'false' // default true
 
+  // PHI export requires admin role
+  if (!stripPhi) {
+    const userRole = c.get('userRole')
+    if (userRole !== 'admin') {
+      return c.json({ error: 'Only admin can export with PHI (strip_phi=false)' }, 403)
+    }
+  }
+
   let sql = `SELECT ts.*, o.module_type as obs_module, o.ai_annotations, o.annotation_data,
                     o.clinician_review, o.media_url, o.media_urls, o.risk_level
              FROM training_samples ts

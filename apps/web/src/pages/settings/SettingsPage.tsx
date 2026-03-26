@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { LayoutDashboard, Building, Shield, User, Key, Bot } from 'lucide-react'
+import { LayoutDashboard, Building, Shield, User, Key, Bot, Smartphone } from 'lucide-react'
 import { useAuth } from '@/lib/auth'
 import { Tabs } from '@/components/ui'
 import { OverviewTab } from './OverviewTab'
@@ -7,11 +7,13 @@ import { OrganizationTab } from './OrganizationTab'
 import { SecurityTab } from './SecurityTab'
 import { PreferencesTab } from './PreferencesTab'
 import { AIDevicesTab } from './AIDevicesTab'
+import { FleetReadinessTab } from './FleetReadinessTab'
 
-type SettingsTab = 'overview' | 'organization' | 'security' | 'preferences' | 'ai-devices'
+type SettingsTab = 'overview' | 'organization' | 'security' | 'preferences' | 'ai-devices' | 'fleet'
 
 const ADMIN_TABS: Array<{ id: SettingsTab; label: string; icon: React.ComponentType<{ className?: string }> }> = [
   { id: 'overview', label: 'Overview', icon: LayoutDashboard },
+  { id: 'fleet', label: 'Fleet Readiness', icon: Smartphone },
   { id: 'organization', label: 'Organization', icon: Building },
   { id: 'security', label: 'Security & Users', icon: Shield },
   { id: 'ai-devices', label: 'AI & Devices', icon: Bot },
@@ -60,6 +62,7 @@ export function SettingsPage() {
 
       {/* Tab content */}
       {activeTab === 'overview' && isAdmin && <OverviewTab />}
+      {activeTab === 'fleet' && isAdmin && <FleetReadinessTab />}
       {activeTab === 'organization' && <OrganizationTab isAdmin={isAdmin} />}
       {activeTab === 'security' && <SecurityTab isAdmin={isAdmin} />}
       {activeTab === 'ai-devices' && <AIDevicesTab />}

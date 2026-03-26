@@ -189,6 +189,59 @@ Respond ONLY with valid JSON:
       }
     }
 
+    // ═══ TRY 3: Groq (needs API key, fast inference) ═══
+    if (!responseText) {
+      let groqApiKey = ''
+      try {
+        const orgResult = await db.execute(`SELECT config_json FROM ai_config LIMIT 1`)
+        if (orgResult.rows.length > 0) {
+          const config = JSON.parse(orgResult.rows[0].config_json as string)
+          if (config.groqApiKey) groqApiKey = config.groqApiKey
+        }
+      } catch { /* skip */ }
+
+      if (groqApiKey) {
+        try {
+          const groqRes = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': `Bearer ${groqApiKey}`,
+            },
+            body: JSON.stringify({
+              model: 'llama-3.2-90b-vision-preview',
+              messages: [
+                { role: 'system', content: systemPrompt },
+                {
+                  role: 'user',
+                  content: [
+                    { type: 'text', text: userContent },
+                    { type: 'image_url', image_url: { url: body.image.startsWith('data:') ? body.image : `data:image/jpeg;base64,${body.image}` } },
+                  ],
+                },
+              ],
+              max_tokens: 1024,
+              temperature: 0.3,
+              response_format: { type: 'json_object' },
+            }),
+          })
+
+          if (groqRes.ok) {
+            const groqData = await groqRes.json() as {
+              choices?: Array<{ message?: { content?: string } }>
+              usage?: { prompt_tokens?: number; completion_tokens?: number }
+            }
+            responseText = groqData.choices?.[0]?.message?.content || ''
+            tokensIn = groqData.usage?.prompt_tokens || 0
+            tokensOut = groqData.usage?.completion_tokens || 0
+            provider = 'groq/llama-3.2-90b-vision'
+          }
+        } catch (groqErr) {
+          console.warn('Groq failed:', groqErr)
+        }
+      }
+    }
+
     if (!responseText) {
       return c.json({
         error: 'All AI providers failed',

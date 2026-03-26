@@ -66,6 +66,7 @@ export function ReadinessCheck({ onReady, onSkip, orgConfig, role = 'nurse' }: R
       setItems([
         { id: 'camera', label: 'Camera Access', status: 'checking' },
         { id: 'devices', label: 'Connected Devices', status: 'checking' },
+        { id: 'stethoscope', label: 'Stethoscope Bridge', status: 'checking' },
         { id: 'storage', label: 'Storage Space', status: 'checking' },
         { id: 'ollama', label: 'Local AI (Ollama)', status: 'checking' },
       ])
@@ -136,6 +137,21 @@ export function ReadinessCheck({ onReady, onSkip, orgConfig, role = 'nurse' }: R
       updateItem('ollama', { status: 'warning', detail: 'Check failed' })
     }
 
+    // Stethoscope bridge check (nurse only)
+    if (role === 'nurse') {
+      try {
+        const ws = new WebSocket('ws://localhost:8765')
+        const stethoPromise = new Promise<void>((resolve) => {
+          ws.onopen = () => { updateItem('stethoscope', { status: 'ok', detail: 'Bridge connected' }); ws.close(); resolve() }
+          ws.onerror = () => { updateItem('stethoscope', { status: 'warning', detail: 'Not detected — optional for cardiac/pulmonary' }); resolve() }
+          setTimeout(() => { try { ws.close() } catch {} resolve() }, 2000)
+        })
+        await stethoPromise
+      } catch {
+        updateItem('stethoscope', { status: 'warning', detail: 'Not available' })
+      }
+    }
+
     // Cloud AI gateway (doctor only)
     if (role === 'doctor') {
       try {
@@ -162,6 +178,25 @@ export function ReadinessCheck({ onReady, onSkip, orgConfig, role = 'nurse' }: R
         updateItem('cloud-ai', { status: 'warning', detail: 'Check failed' })
       }
     }
+  }
+
+    // Report readiness to server (non-blocking)
+    try {
+      const API_URL = import.meta.env.VITE_API_URL || ''
+      const token = localStorage.getItem('auth_token')
+      if (token && API_URL) {
+        fetch(`${API_URL}/api/device-status`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+          body: JSON.stringify({
+            deviceType: 'web',
+            checks: items.map(i => ({ id: i.id, label: i.label, status: i.status, detail: i.detail })),
+            overallStatus: items.some(i => i.status === 'error') ? 'error'
+              : items.some(i => i.status === 'warning') ? 'warning' : 'ready',
+          }),
+        }).catch(() => {}) // Silently fail
+      }
+    } catch { /* non-critical */ }
   }
 
   const checkDevices = async () => {

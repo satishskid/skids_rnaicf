@@ -20,6 +20,9 @@ export function AIDevicesTab() {
   const [geminiKey, setGeminiKey] = useState('')
   const [geminiKeyMasked, setGeminiKeyMasked] = useState('')
   const [showGeminiKey, setShowGeminiKey] = useState(false)
+  const [groqKey, setGroqKey] = useState('')
+  const [groqKeyMasked, setGroqKeyMasked] = useState('')
+  const [showGroqKey, setShowGroqKey] = useState(false)
   const [savedConfig, setSavedConfig] = useState<Partial<LLMConfig> | undefined>(undefined)
   const [msg, setMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
   const [copied, setCopied] = useState(false)
@@ -37,6 +40,10 @@ export function AIDevicesTab() {
           const existingKey = (data.config as Record<string, unknown>).geminiApiKey as string | undefined
           if (existingKey) {
             setGeminiKeyMasked(existingKey.slice(0, 6) + '...' + existingKey.slice(-4))
+          }
+          const existingGroqKey = (data.config as Record<string, unknown>).groqApiKey as string | undefined
+          if (existingGroqKey) {
+            setGroqKeyMasked(existingGroqKey.slice(0, 6) + '...' + existingGroqKey.slice(-4))
           }
         }
       } catch {
@@ -56,6 +63,7 @@ export function AIDevicesTab() {
       const fullConfig = {
         ...config,
         ...(geminiKey ? { geminiApiKey: geminiKey } : {}),
+        ...(groqKey ? { groqApiKey: groqKey } : {}),
       }
       await apiCall(`/api/ai-config/${orgId}`, {
         method: 'PUT',
@@ -66,6 +74,11 @@ export function AIDevicesTab() {
         setGeminiKeyMasked(geminiKey.slice(0, 6) + '...' + geminiKey.slice(-4))
         setGeminiKey('')
         setShowGeminiKey(false)
+      }
+      if (groqKey) {
+        setGroqKeyMasked(groqKey.slice(0, 6) + '...' + groqKey.slice(-4))
+        setGroqKey('')
+        setShowGroqKey(false)
       }
     } catch (e) {
       setMsg({ type: 'error', text: e instanceof Error ? e.message : 'Failed to save configuration' })
@@ -179,12 +192,47 @@ export function AIDevicesTab() {
               </span>
             </div>
 
+            {/* Groq API Key */}
+            <div className="space-y-2">
+              <div className="flex items-center justify-between">
+                <label className="text-sm font-medium text-foreground">Groq API Key</label>
+                {groqKeyMasked && (
+                  <span className="text-xs text-emerald-600 flex items-center gap-1">
+                    <CheckCircle2 className="h-3 w-3" />
+                    Configured ({groqKeyMasked})
+                  </span>
+                )}
+              </div>
+              <div className="flex gap-2">
+                <input
+                  type={showGroqKey ? 'text' : 'password'}
+                  className="flex-1 text-xs px-3 py-2 border rounded-lg bg-background"
+                  placeholder={groqKeyMasked ? 'Enter new key to replace existing' : 'gsk_... (from console.groq.com)'}
+                  value={groqKey}
+                  onChange={(e) => setGroqKey(e.target.value)}
+                />
+                <button
+                  type="button"
+                  className="text-xs px-3 py-2 bg-muted border rounded-lg hover:bg-muted/80"
+                  onClick={() => setShowGroqKey(!showGroqKey)}
+                >
+                  {showGroqKey ? 'Hide' : 'Show'}
+                </button>
+              </div>
+              <p className="text-[10px] text-muted-foreground">
+                Used for Groq Llama Vision (fast inference). Get a free key at{' '}
+                <a href="https://console.groq.com/keys" target="_blank" rel="noopener noreferrer" className="text-violet-600 underline">
+                  console.groq.com/keys
+                </a>
+              </p>
+            </div>
+
             {/* Provider Priority Note */}
             <div className="p-3 bg-blue-50 border border-blue-200 rounded-lg">
               <p className="text-[10px] text-blue-700">
                 <strong>How it works:</strong> Vision analysis tries Workers AI (free) first.
-                If that fails, falls back to Gemini Flash (if API key is configured).
-                Setting a Gemini key here stores it in the database so you don't need CLI access to wrangler secrets.
+                If that fails, falls back to Gemini Flash, then Groq (if API keys are configured).
+                Keys are stored in the database so you don't need CLI access to wrangler secrets.
               </p>
             </div>
           </div>

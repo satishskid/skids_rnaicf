@@ -293,12 +293,45 @@ app.get('/population-health/dashboard', async (c) => {
   const total = Number((totalResult.rows[0] as Record<string, unknown>)?.total || 0)
   const screened = Number((screenedResult.rows[0] as Record<string, unknown>)?.screened || 0)
 
+  // Geographic aggregation
+  const orgFilter = orgCode ? ' WHERE org_code = ?' : ''
+  const orgArgs = orgCode ? [orgCode] : []
+
+  const [byState, byDistrict] = await Promise.all([
+    db.execute({
+      sql: `SELECT cam.state, COUNT(DISTINCT ch.id) as children,
+                   COUNT(DISTINCT CASE WHEN o.id IS NOT NULL THEN ch.id END) as screened,
+                   COUNT(DISTINCT cam.code) as campaigns
+            FROM campaigns cam
+            LEFT JOIN children ch ON ch.campaign_code = cam.code
+            LEFT JOIN observations o ON o.child_id = ch.id
+            ${orgFilter ? 'WHERE cam.org_code = ?' : 'WHERE 1=1'}
+            AND cam.state IS NOT NULL AND cam.state != ''
+            GROUP BY cam.state ORDER BY children DESC`,
+      args: orgArgs,
+    }),
+    db.execute({
+      sql: `SELECT cam.district, cam.state, COUNT(DISTINCT ch.id) as children,
+                   COUNT(DISTINCT CASE WHEN o.id IS NOT NULL THEN ch.id END) as screened,
+                   COUNT(DISTINCT cam.code) as campaigns
+            FROM campaigns cam
+            LEFT JOIN children ch ON ch.campaign_code = cam.code
+            LEFT JOIN observations o ON o.child_id = ch.id
+            ${orgFilter ? 'WHERE cam.org_code = ?' : 'WHERE 1=1'}
+            AND cam.district IS NOT NULL AND cam.district != ''
+            GROUP BY cam.district, cam.state ORDER BY children DESC`,
+      args: orgArgs,
+    }),
+  ])
+
   return c.json({
     totalChildren: total,
     screenedChildren: screened,
     screeningCoverage: total > 0 ? Math.round((screened / total) * 1000) / 10 : 0,
     topConditions: conditionResult.rows,
     campaigns: campaignResult.rows,
+    byState: byState.rows,
+    byDistrict: byDistrict.rows,
   })
 })
 
@@ -311,6 +344,9 @@ interface CohortFilter {
   ageMax?: number
   classes?: string[]
   conditions?: string[]  // module_types with risk > 0
+  states?: string[]      // geographic filters
+  districts?: string[]
+  cities?: string[]
 }
 
 function buildCohortQuery(filter: CohortFilter): { sql: string; args: unknown[] } {
@@ -354,6 +390,23 @@ function buildCohortQuery(filter: CohortFilter): { sql: string; args: unknown[] 
     const ph = filter.conditions.map(() => '?').join(',')
     sql += ` AND c.id IN (SELECT DISTINCT child_id FROM observations WHERE module_type IN (${ph}) AND risk_level > 0)`
     args.push(...filter.conditions)
+  }
+
+  // Geographic filters (via campaign location)
+  if (filter.states?.length) {
+    const ph = filter.states.map(() => '?').join(',')
+    sql += ` AND c.campaign_code IN (SELECT code FROM campaigns WHERE state IN (${ph}))`
+    args.push(...filter.states)
+  }
+  if (filter.districts?.length) {
+    const ph = filter.districts.map(() => '?').join(',')
+    sql += ` AND c.campaign_code IN (SELECT code FROM campaigns WHERE district IN (${ph}))`
+    args.push(...filter.districts)
+  }
+  if (filter.cities?.length) {
+    const ph = filter.cities.map(() => '?').join(',')
+    sql += ` AND c.campaign_code IN (SELECT code FROM campaigns WHERE city IN (${ph}))`
+    args.push(...filter.cities)
   }
 
   return { sql, args }

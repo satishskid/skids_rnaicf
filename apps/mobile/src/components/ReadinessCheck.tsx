@@ -39,6 +39,7 @@ export function ReadinessCheck({ onReady, showContinueButton }: ReadinessCheckPr
     { id: 'bluetooth', label: 'Bluetooth', status: 'checking', group: 'hardware', blocking: false },
     { id: 'nfc', label: 'NFC (Ayushman)', status: 'checking', group: 'hardware', blocking: false },
     { id: 'ai_engine', label: 'AI Engine', status: 'checking', group: 'hardware', blocking: false },
+    { id: 'ml_models', label: 'AI Models', status: 'checking', group: 'hardware', blocking: false },
     // Medical Devices
     { id: 'usb_camera', label: 'External Camera', status: 'checking', group: 'devices', blocking: false },
     { id: 'ayusync', label: 'AyuSync', status: 'checking', group: 'devices', blocking: false },
@@ -192,6 +193,22 @@ export function ReadinessCheck({ onReady, showContinueButton }: ReadinessCheckPr
         updates.set('ai_engine', { status: 'error', detail: 'Failed to load' })
       }
 
+      // ML Model download status
+      try {
+        const { listCachedModels } = require('../lib/ai/model-loader-mobile')
+        const cached = await listCachedModels()
+        const cachedCount = Array.isArray(cached) ? cached.length : 0
+        if (cachedCount >= 3) {
+          updates.set('ml_models', { status: 'ready', detail: `${cachedCount} models cached` })
+        } else if (cachedCount > 0) {
+          updates.set('ml_models', { status: 'warning', detail: `${cachedCount} cached — download more in Settings` })
+        } else {
+          updates.set('ml_models', { status: 'warning', detail: 'No models cached — download in Settings' })
+        }
+      } catch {
+        updates.set('ml_models', { status: 'warning', detail: 'Model cache check unavailable' })
+      }
+
       // USB / External Camera detection
       // In Expo managed workflow, USB cameras are accessed via the system camera app.
       // We check if camera permission is granted and note that USB cameras work via system camera.
@@ -270,13 +287,27 @@ export function ReadinessCheck({ onReady, showContinueButton }: ReadinessCheckPr
         })
       }
 
-      setItems(prev =>
-        prev.map(item => {
-          const update = updates.get(item.id)
-          return update ? { ...item, ...update } : item
-        })
-      )
+      const finalItems = items.map(item => {
+        const update = updates.get(item.id)
+        return update ? { ...item, ...update } : item
+      })
+      setItems(finalItems)
       setChecking(false)
+
+      // Report readiness to server (non-blocking)
+      try {
+        const { apiCall } = require('../lib/api')
+        const overallStatus = finalItems.some(i => i.blocking && i.status === 'error') ? 'error'
+          : finalItems.some(i => i.status === 'warning') ? 'warning' : 'ready'
+        apiCall('/api/device-status', {
+          method: 'POST',
+          body: JSON.stringify({
+            deviceType: 'mobile',
+            checks: finalItems.map(i => ({ id: i.id, label: i.label, status: i.status, detail: i.detail })),
+            overallStatus,
+          }),
+        }).catch(() => {}) // Silently fail — don't block screening
+      } catch { /* non-critical */ }
     }
 
     runChecks()

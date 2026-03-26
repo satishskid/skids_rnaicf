@@ -6,34 +6,52 @@ import { generateCampaignCode } from '@skids/shared'
 export const campaignRoutes = new Hono<{ Bindings: Bindings; Variables: Variables }>()
 
 // List campaigns — authority users see only assigned campaigns, others see all
+// Supports geo-filters: ?state=X&district=Y&city=Z
 campaignRoutes.get('/', async (c) => {
   const db = c.get('db')
   const userRole = c.get('userRole')
   const userId = c.get('userId')
+
+  // Geo-filters
+  const stateFilter = c.req.query('state')
+  const districtFilter = c.req.query('district')
+  const cityFilter = c.req.query('city')
 
   let result
 
   if (userRole === 'authority') {
     // Authority users only see campaigns assigned to them
     try {
-      result = await db.execute({
-        sql: `SELECT c.code, c.name, c.school_name, c.campaign_type, c.status,
-                     c.total_children, c.enabled_modules, c.created_at, c.city, c.state, c.reports_released
-              FROM campaigns c
-              INNER JOIN campaign_assignments ca ON ca.campaign_code = c.code
-              WHERE ca.user_id = ?
-              ORDER BY c.created_at DESC`,
-        args: [userId],
-      })
+      let sql = `SELECT c.code, c.name, c.school_name, c.campaign_type, c.status,
+                        c.total_children, c.enabled_modules, c.created_at, c.city, c.state,
+                        c.district, c.lat, c.lng, c.reports_released
+                 FROM campaigns c
+                 INNER JOIN campaign_assignments ca ON ca.campaign_code = c.code
+                 WHERE ca.user_id = ?`
+      const args: unknown[] = [userId]
+
+      if (stateFilter) { sql += ' AND c.state = ?'; args.push(stateFilter) }
+      if (districtFilter) { sql += ' AND c.district = ?'; args.push(districtFilter) }
+      if (cityFilter) { sql += ' AND c.city = ?'; args.push(cityFilter) }
+
+      sql += ' ORDER BY c.created_at DESC'
+      result = await db.execute({ sql, args })
     } catch {
-      // campaign_assignments table might not exist yet — return empty
       result = { rows: [] }
     }
   } else {
     // admin, ops_manager, doctor, nurse — see all campaigns
-    result = await db.execute(
-      'SELECT code, name, school_name, campaign_type, status, total_children, enabled_modules, created_at, city, state, reports_released FROM campaigns ORDER BY created_at DESC'
-    )
+    let sql = `SELECT code, name, school_name, campaign_type, status, total_children,
+                      enabled_modules, created_at, city, state, district, lat, lng, reports_released
+               FROM campaigns WHERE 1=1`
+    const args: unknown[] = []
+
+    if (stateFilter) { sql += ' AND state = ?'; args.push(stateFilter) }
+    if (districtFilter) { sql += ' AND district = ?'; args.push(districtFilter) }
+    if (cityFilter) { sql += ' AND city = ?'; args.push(cityFilter) }
+
+    sql += ' ORDER BY created_at DESC'
+    result = await db.execute({ sql, args })
   }
 
   const campaigns = result.rows.map((row: any) => ({
@@ -47,6 +65,9 @@ campaignRoutes.get('/', async (c) => {
     createdAt: row.created_at,
     city: row.city,
     state: row.state,
+    district: row.district,
+    lat: row.lat,
+    lng: row.lng,
     reportsReleased: !!row.reports_released,
   }))
   return c.json({ campaigns })
@@ -85,15 +106,20 @@ campaignRoutes.get('/:code', async (c) => {
   })
 })
 
-// Create campaign
+// Create campaign — admin/ops_manager only
 campaignRoutes.post('/', async (c) => {
+  const userRole = c.get('userRole')
+  if (!['admin', 'ops_manager'].includes(userRole || '')) {
+    return c.json({ error: 'Only admin/ops_manager can create campaigns' }, 403)
+  }
+
   const db = c.get('db')
   const body = await c.req.json()
   const code = body.code || generateCampaignCode()
 
   await db.execute({
-    sql: `INSERT INTO campaigns (code, name, org_code, school_name, academic_year, campaign_type, status, enabled_modules, custom_modules, total_children, created_by, city, state, district, address, pincode)
-          VALUES (?, ?, ?, ?, ?, ?, 'active', ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    sql: `INSERT INTO campaigns (code, name, org_code, school_name, academic_year, campaign_type, status, enabled_modules, custom_modules, total_children, created_by, city, state, district, address, pincode, lat, lng)
+          VALUES (?, ?, ?, ?, ?, ?, 'active', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     args: [
       code,
       body.name,
@@ -110,6 +136,8 @@ campaignRoutes.post('/', async (c) => {
       body.district || null,
       body.address || null,
       body.pincode || null,
+      body.lat || null,
+      body.lng || null,
     ],
   })
 

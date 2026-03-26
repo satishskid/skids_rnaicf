@@ -30,6 +30,7 @@ import { consentRoutes } from './routes/consents'
 import { instrumentRoutes } from './routes/instruments'
 import { studyRoutes } from './routes/studies'
 import { cohortRoutes } from './routes/cohorts'
+import { deviceStatusRoutes } from './routes/device-status'
 import { createTursoClient } from '@skids/db'
 import { createAuth } from './auth'
 import { authMiddleware, requireRole } from './middleware/auth'
@@ -152,6 +153,7 @@ app.use('/api/training/*', authMiddleware)
 app.route('/api', trainingRoutes)
 
 // R2 — APK download is public, presign/upload require auth
+app.use('/api/r2/presign', authMiddleware)
 app.route('/api/r2', r2Routes)
 
 // AyuSynk — webhook POST is public, GET is auth-protected per-handler
@@ -171,9 +173,11 @@ app.use('/api/ai', authMiddleware)
 app.use('/api/ai/*', authMiddleware)
 app.route('/api/ai', aiGatewayRoutes)
 
-// AI Config — require admin
+// AI Config — require admin (API keys, model settings)
 app.use('/api/ai-config', authMiddleware)
 app.use('/api/ai-config/*', authMiddleware)
+app.use('/api/ai-config', requireRole('admin'))
+app.use('/api/ai-config/*', requireRole('admin'))
 app.route('/api/ai-config', aiConfigRoutes)
 
 // Export routes — require auth
@@ -238,6 +242,13 @@ app.route('/api/studies', studyRoutes)
 app.use('/api/cohorts', authMiddleware)
 app.use('/api/cohorts/*', authMiddleware)
 app.route('/api/cohorts', cohortRoutes)
+
+// Device readiness — any auth for reporting, admin/ops_manager for fleet view
+app.use('/api/device-status', authMiddleware)
+app.use('/api/device-status/*', authMiddleware)
+app.use('/api/device-status/fleet', requireRole('admin', 'ops_manager'))
+app.use('/api/device-status/fleet/*', requireRole('admin', 'ops_manager'))
+app.route('/api/device-status', deviceStatusRoutes)
 
 // Root
 app.get('/', (c) => {

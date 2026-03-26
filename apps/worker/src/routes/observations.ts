@@ -9,9 +9,32 @@ observationRoutes.get('/', async (c) => {
   const db = c.get('db')
   const campaignCode = c.req.query('campaign')
   const childId = c.req.query('child')
+  const userRole = c.get('userRole')
+  const userId = c.get('userId')
+
+  // Authority users can only access observations from assigned campaigns
+  if (userRole === 'authority' && campaignCode) {
+    try {
+      const assignment = await db.execute({
+        sql: 'SELECT id FROM campaign_assignments WHERE user_id = ? AND campaign_code = ?',
+        args: [userId, campaignCode],
+      })
+      if (assignment.rows.length === 0) {
+        return c.json({ error: 'Not authorized for this campaign' }, 403)
+      }
+    } catch {
+      return c.json({ error: 'Not authorized for this campaign' }, 403)
+    }
+  }
 
   let sql = 'SELECT * FROM observations WHERE 1=1'
   const args: unknown[] = []
+
+  if (userRole === 'authority') {
+    // Authority without specific campaign: only see assigned campaigns
+    sql += ` AND campaign_code IN (SELECT campaign_code FROM campaign_assignments WHERE user_id = ?)`
+    args.push(userId)
+  }
 
   if (campaignCode) {
     sql += ' AND campaign_code = ?'

@@ -18,18 +18,31 @@ function generateQrCode(): string {
 childrenRoutes.get('/search', async (c) => {
   const db = c.get('db')
   const q = c.req.query('q')
+  const userRole = c.get('userRole')
+  const userId = c.get('userId')
   if (!q || q.length < 2) {
     return c.json({ error: 'Search query must be at least 2 characters' }, 400)
   }
 
-  const result = await db.execute({
-    sql: `SELECT c.*, cam.name as campaign_name, cam.school_name
-          FROM children c
-          LEFT JOIN campaigns cam ON cam.code = c.campaign_code
-          WHERE c.name LIKE ? OR c.admission_number LIKE ? OR c.qr_code LIKE ?
-          ORDER BY c.name LIMIT 50`,
-    args: [`%${q}%`, `%${q}%`, `%${q}%`],
-  })
+  // Authority users: only search within assigned campaigns
+  const baseSql = userRole === 'authority'
+    ? `SELECT c.*, cam.name as campaign_name, cam.school_name
+       FROM children c
+       LEFT JOIN campaigns cam ON cam.code = c.campaign_code
+       INNER JOIN campaign_assignments ca ON ca.campaign_code = c.campaign_code AND ca.user_id = ?
+       WHERE (c.name LIKE ? OR c.admission_number LIKE ? OR c.qr_code LIKE ?)
+       ORDER BY c.name LIMIT 50`
+    : `SELECT c.*, cam.name as campaign_name, cam.school_name
+       FROM children c
+       LEFT JOIN campaigns cam ON cam.code = c.campaign_code
+       WHERE c.name LIKE ? OR c.admission_number LIKE ? OR c.qr_code LIKE ?
+       ORDER BY c.name LIMIT 50`
+
+  const baseArgs = userRole === 'authority'
+    ? [userId, `%${q}%`, `%${q}%`, `%${q}%`]
+    : [`%${q}%`, `%${q}%`, `%${q}%`]
+
+  const result = await db.execute({ sql: baseSql, args: baseArgs })
 
   const children = result.rows.map((row: any) => ({
     id: row.id,
@@ -53,9 +66,26 @@ childrenRoutes.get('/', async (c) => {
   const db = c.get('db')
   const campaignCode = c.req.query('campaign')
   const search = c.req.query('search')
+  const userRole = c.get('userRole')
+  const userId = c.get('userId')
 
   if (!campaignCode) {
     return c.json({ error: 'campaign query param required' }, 400)
+  }
+
+  // Authority users can only access children from assigned campaigns
+  if (userRole === 'authority') {
+    try {
+      const assignment = await db.execute({
+        sql: 'SELECT id FROM campaign_assignments WHERE user_id = ? AND campaign_code = ?',
+        args: [userId, campaignCode],
+      })
+      if (assignment.rows.length === 0) {
+        return c.json({ error: 'Not authorized for this campaign' }, 403)
+      }
+    } catch {
+      return c.json({ error: 'Not authorized for this campaign' }, 403)
+    }
   }
 
   let sql = 'SELECT * FROM children WHERE campaign_code = ?'
