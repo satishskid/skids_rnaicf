@@ -1,14 +1,15 @@
+// client-side only
+
 /**
  * ONNX Model Loader — Downloads, caches, and loads ONNX models for browser inference.
- * Ported from V2 model-loader.ts.
  *
  * - Lazy-loads models only when first needed
- * - Caches in Cache API (persistent across sessions)
+ * - Caches in Cache API (persistent across sessions, ~3.5-23 MB per model)
  * - Shows progress callback during first-time download
  * - Falls back gracefully if model load fails
  */
 
-const MODEL_CACHE_NAME = 'skids-ai-models-v1'
+const MODEL_CACHE_NAME = 'zpediscreen-ai-models-v1'
 
 export interface ModelLoadProgress {
   loaded: number
@@ -17,14 +18,16 @@ export interface ModelLoadProgress {
 }
 
 interface CachedModel {
-  session: unknown // ort.InferenceSession — typed as unknown to avoid import issues
+  session: unknown // ort.InferenceSession — typed as unknown to avoid SSR import issues
   inputName: string
   outputNames: string[]
 }
 
 const loadedModels = new Map<string, CachedModel>()
 
-/** Check if a model is already cached in Cache API. */
+/**
+ * Check if a model is already cached in Cache API.
+ */
 export async function isModelCached(modelUrl: string): Promise<boolean> {
   try {
     const cache = await caches.open(MODEL_CACHE_NAME)
@@ -35,7 +38,10 @@ export async function isModelCached(modelUrl: string): Promise<boolean> {
   }
 }
 
-/** Download model bytes, using Cache API for persistence. */
+/**
+ * Download model bytes, using Cache API for persistence.
+ * Returns ArrayBuffer of the ONNX model.
+ */
 async function fetchModelBytes(
   modelUrl: string,
   onProgress?: (progress: ModelLoadProgress) => void
@@ -83,6 +89,7 @@ async function fetchModelBytes(
     })
   }
 
+  // Combine chunks into single ArrayBuffer
   const combined = new Uint8Array(loaded)
   let offset = 0
   for (const chunk of chunks) {
@@ -104,23 +111,32 @@ async function fetchModelBytes(
   return combined.buffer
 }
 
-/** Load an ONNX model and create an InferenceSession. */
+/**
+ * Load an ONNX model and create an InferenceSession.
+ * Returns the session ready for inference, or null if loading fails.
+ */
 export async function loadModel(
   modelUrl: string,
   onProgress?: (progress: ModelLoadProgress) => void
 ): Promise<CachedModel | null> {
+  // Check in-memory cache first
   const existing = loadedModels.get(modelUrl)
   if (existing) return existing
 
   try {
+    // Dynamically import onnxruntime-web (avoids SSR issues)
     const ort = await import('onnxruntime-web')
+
+    // Configure execution providers: WebGPU > WASM
     ort.env.wasm.numThreads = 1
     ort.env.wasm.simd = true
 
+    // Download model bytes
     const modelBytes = await fetchModelBytes(modelUrl, onProgress)
 
+    // Create inference session
     const session = await ort.InferenceSession.create(modelBytes, {
-      executionProviders: ['wasm'],
+      executionProviders: ['wasm'], // WebGPU requires explicit opt-in, start with WASM for compatibility
       graphOptimizationLevel: 'all',
     })
 
@@ -137,7 +153,11 @@ export async function loadModel(
   }
 }
 
-/** Run inference on a loaded model. */
+/**
+ * Run inference on a loaded model.
+ * Input: Float32Array of preprocessed image data (NCHW format).
+ * Returns: Map of output name → Float32Array.
+ */
 export async function runInference(
   model: CachedModel,
   inputData: Float32Array,
@@ -170,7 +190,7 @@ export async function runInference(
 
 /**
  * Preprocess an image (from canvas ImageData) to ONNX model input format.
- * Resizes to targetSize x targetSize, normalizes, converts to NCHW.
+ * Resizes to targetSize × targetSize, normalizes to [0,1], converts to NCHW.
  */
 export function preprocessImage(
   imageData: ImageData,
@@ -178,11 +198,13 @@ export function preprocessImage(
   mean: [number, number, number] = [0.485, 0.456, 0.406],
   std: [number, number, number] = [0.229, 0.224, 0.225]
 ): { data: Float32Array; shape: number[] } {
+  // Create offscreen canvas for resize
   const canvas = document.createElement('canvas')
   canvas.width = targetSize
   canvas.height = targetSize
   const ctx = canvas.getContext('2d')!
 
+  // Draw source image scaled to target size
   const srcCanvas = document.createElement('canvas')
   srcCanvas.width = imageData.width
   srcCanvas.height = imageData.height
@@ -191,8 +213,9 @@ export function preprocessImage(
   ctx.drawImage(srcCanvas, 0, 0, targetSize, targetSize)
 
   const resized = ctx.getImageData(0, 0, targetSize, targetSize)
-  const pixels = resized.data
+  const pixels = resized.data // RGBA flat array
 
+  // Convert to NCHW Float32 with ImageNet normalization
   const numPixels = targetSize * targetSize
   const float32 = new Float32Array(3 * numPixels)
 
@@ -201,15 +224,17 @@ export function preprocessImage(
     const g = pixels[i * 4 + 1] / 255
     const b = pixels[i * 4 + 2] / 255
 
-    float32[i] = (r - mean[0]) / std[0]
-    float32[numPixels + i] = (g - mean[1]) / std[1]
-    float32[2 * numPixels + i] = (b - mean[2]) / std[2]
+    float32[i] = (r - mean[0]) / std[0]                    // R channel
+    float32[numPixels + i] = (g - mean[1]) / std[1]        // G channel
+    float32[2 * numPixels + i] = (b - mean[2]) / std[2]    // B channel
   }
 
   return { data: float32, shape: [1, 3, targetSize, targetSize] }
 }
 
-/** Clear all cached models from Cache API. */
+/**
+ * Clear all cached models from Cache API.
+ */
 export async function clearModelCache(): Promise<void> {
   try {
     await caches.delete(MODEL_CACHE_NAME)
@@ -219,7 +244,9 @@ export async function clearModelCache(): Promise<void> {
   }
 }
 
-/** Get total size of cached models. */
+/**
+ * Get total size of cached models.
+ */
 export async function getCachedModelSize(): Promise<number> {
   try {
     const cache = await caches.open(MODEL_CACHE_NAME)

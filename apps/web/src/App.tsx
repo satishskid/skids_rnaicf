@@ -1,5 +1,13 @@
+import { lazy, Suspense } from 'react'
 import { BrowserRouter, Routes, Route } from 'react-router-dom'
 import { AuthProvider } from './lib/auth'
+import { ErrorBoundary } from './components/ErrorBoundary'
+import { Toaster } from 'sonner'
+
+// Lazy-loaded screening & AI pages (large bundles, code-split)
+const ScreeningPage = lazy(() => import('./pages/ScreeningPage'))
+const ModuleScreen = lazy(() => import('./pages/ModuleScreen'))
+const LocalAIPage = lazy(() => import('./pages/LocalAIPage'))
 import { Layout } from './components/Layout'
 import { DocsLayout } from './components/DocsLayout'
 import { LoginPage } from './pages/Login'
@@ -29,7 +37,9 @@ import { PopulationHealthPage } from './pages/PopulationHealth'
 
 export function App() {
   return (
+    <ErrorBoundary>
     <AuthProvider>
+      <Toaster position="top-right" />
       <BrowserRouter>
         <Routes>
           {/* Public routes */}
@@ -54,7 +64,14 @@ export function App() {
             <Route path="/studies/:id" element={<StudyDetailPage />} />
             <Route path="/population-health" element={<PopulationHealthPage />} />
             <Route path="/settings" element={<SettingsPage />} />
+
+            {/* Screening routes (lazy-loaded) */}
+            <Route path="/screen/:code" element={<Suspense fallback={<div className="p-8 text-center">Loading...</div>}><ScreeningPage /></Suspense>} />
+            <Route path="/screen/:code/:childId/:module" element={<Suspense fallback={<div className="p-8 text-center">Loading...</div>}><ModuleScreen /></Suspense>} />
           </Route>
+
+          {/* Local AI demo (public, lazy-loaded) */}
+          <Route path="/local-ai" element={<Suspense fallback={<div className="p-8 text-center">Loading AI...</div>}><LocalAIPage /></Suspense>} />
 
           {/* Documentation pages with docs layout */}
           <Route element={<DocsLayout />}>
@@ -68,5 +85,6 @@ export function App() {
         </Routes>
       </BrowserRouter>
     </AuthProvider>
+    </ErrorBoundary>
   )
 }

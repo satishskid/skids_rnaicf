@@ -1,4 +1,4 @@
-const API_BASE = 'https://skids-api.satish-9f4.workers.dev'
+const API_BASE = import.meta.env.VITE_API_URL || 'https://skids-api.satish-9f4.workers.dev'
 
 export class ApiError extends Error {
   constructor(
@@ -121,5 +121,23 @@ export async function createReview(data: Record<string, unknown>) {
   return apiCall('/api/reviews', {
     method: 'POST',
     body: JSON.stringify(data),
+  })
+}
+
+/**
+ * authFetch — compatibility layer for V2 sync engine.
+ * Returns raw Response (like V2's authFetch) instead of parsed JSON.
+ * Paths are relative to API_BASE (e.g., '/api/campaigns/ABC/sync').
+ */
+export async function authFetch(path: string, options?: RequestInit): Promise<Response> {
+  const token = localStorage.getItem('auth_token')
+  return fetch(`${API_BASE}${path}`, {
+    ...options,
+    credentials: 'include',
+    headers: {
+      'Content-Type': 'application/json',
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      ...options?.headers,
+    },
   })
 }
