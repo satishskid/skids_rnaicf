@@ -187,7 +187,69 @@ r2Routes.post('/apk/upload', async (c) => {
   }
 })
 
-// ── POST /api/r2/presign ──
+// ── POST /api/r2/upload — Direct R2 upload via binding (no S3 API keys needed) ──
+
+r2Routes.post('/upload', async (c) => {
+  const userId = c.get('userId')
+  if (!userId) {
+    return c.json({ error: 'Unauthorized — please sign in' }, 401)
+  }
+  try {
+    const bucket = c.env.R2_BUCKET
+    if (!bucket) {
+      return c.json({ error: 'R2 bucket not configured' }, 500)
+    }
+
+    const body = await c.req.json<{ key?: string; contentType?: string; data?: string }>()
+    const { key, contentType, data } = body
+
+    if (!key || !contentType || !data) {
+      return c.json({ error: 'Missing key, contentType, or data (base64)' }, 400)
+    }
+
+    // Path validation: decode segments, allowlist characters
+    const keyParts = key.split('/')
+    const decoded = keyParts.map((p: string) => {
+      try { return decodeURIComponent(p) } catch { return p }
+    })
+    if (
+      decoded.length < 2 ||
+      decoded.some((p: string) => p === '..' || p === '' || p === '.' || !/^[a-zA-Z0-9._-]+$/.test(p))
+    ) {
+      return c.json({ error: 'Invalid key format' }, 400)
+    }
+
+    // Decode base64 data
+    const binaryString = atob(data)
+    const bytes = new Uint8Array(binaryString.length)
+    for (let i = 0; i < binaryString.length; i++) {
+      bytes[i] = binaryString.charCodeAt(i)
+    }
+
+    // Size limit: 50MB
+    if (bytes.length > 50 * 1024 * 1024) {
+      return c.json({ error: 'File too large (max 50MB)' }, 400)
+    }
+
+    await bucket.put(key, bytes, {
+      httpMetadata: { contentType },
+      customMetadata: { uploadedBy: userId },
+    })
+
+    return c.json({
+      key,
+      size: bytes.length,
+      sizeHuman: bytes.length > 1024 * 1024
+        ? `${Math.round(bytes.length / 1024 / 1024)} MB`
+        : `${Math.round(bytes.length / 1024)} KB`,
+    })
+  } catch (err) {
+    console.error('R2 upload error:', err)
+    return c.json({ error: 'Upload failed' }, 500)
+  }
+})
+
+// ── POST /api/r2/presign — Legacy presigned URL route (needs S3 API keys) ──
 
 r2Routes.post('/presign', async (c) => {
   const userId = c.get('userId')
@@ -198,10 +260,14 @@ r2Routes.post('/presign', async (c) => {
     const accessKeyId = c.env.CLOUDFLARE_R2_ACCESS_KEY_ID
     const secretAccessKey = c.env.CLOUDFLARE_R2_SECRET_ACCESS_KEY
     const endpoint = c.env.CLOUDFLARE_R2_ENDPOINT
-    const bucket = c.env.CLOUDFLARE_R2_BUCKET || 'skids-media'
+    const bucketName = c.env.CLOUDFLARE_R2_BUCKET || 'skids-media'
 
     if (!accessKeyId || !secretAccessKey || !endpoint) {
-      return c.json({ error: 'R2 credentials not configured' }, 500)
+      // Fallback: suggest using /api/r2/upload instead
+      return c.json({
+        error: 'R2 presign credentials not configured. Use POST /api/r2/upload with base64 data instead.',
+        alternative: '/api/r2/upload',
+      }, 501)
     }
 
     const body = await c.req.json<{ key?: string; contentType?: string; size?: number }>()
@@ -211,42 +277,58 @@ r2Routes.post('/presign', async (c) => {
       return c.json({ error: 'Missing key or contentType' }, 400)
     }
 
-    // Path validation: decode segments, allowlist characters
     const keyParts = key.split('/')
     const decoded = keyParts.map((p: string) => {
-      try {
-        return decodeURIComponent(p)
-      } catch {
-        return p
-      }
+      try { return decodeURIComponent(p) } catch { return p }
     })
     if (
       decoded.length < 3 ||
-      decoded.some(
-        (p: string) => p === '..' || p === '' || p === '.' || !/^[a-zA-Z0-9._-]+$/.test(p),
-      )
+      decoded.some((p: string) => p === '..' || p === '' || p === '.' || !/^[a-zA-Z0-9._-]+$/.test(p))
     ) {
       return c.json({ error: 'Invalid key format' }, 400)
     }
 
-    // Size limit: 50MB
     if (size && size > 50 * 1024 * 1024) {
       return c.json({ error: 'File too large (max 50MB)' }, 400)
     }
 
-    const uploadUrl = await generatePresignedUrl(
-      key,
-      contentType,
-      accessKeyId,
-      secretAccessKey,
-      endpoint,
-      bucket,
-    )
-    const publicUrl = `${endpoint}/${bucket}/${key}`
+    const uploadUrl = await generatePresignedUrl(key, contentType, accessKeyId, secretAccessKey, endpoint, bucketName)
+    const publicUrl = `${endpoint}/${bucketName}/${key}`
 
     return c.json({ uploadUrl, publicUrl, key })
   } catch (err) {
     console.error('R2 presign error:', err)
     return c.json({ error: 'Presign failed' }, 500)
   }
+})
+
+// ── GET /api/r2/file/:key+ — Download a file from R2 ──
+
+r2Routes.get('/file/*', async (c) => {
+  const userId = c.get('userId')
+  if (!userId) {
+    return c.json({ error: 'Unauthorized' }, 401)
+  }
+
+  const bucket = c.env.R2_BUCKET
+  if (!bucket) {
+    return c.json({ error: 'R2 bucket not configured' }, 500)
+  }
+
+  const key = c.req.path.replace('/api/r2/file/', '')
+  if (!key) {
+    return c.json({ error: 'Missing file key' }, 400)
+  }
+
+  const obj = await bucket.get(key)
+  if (!obj) {
+    return c.json({ error: 'File not found' }, 404)
+  }
+
+  const headers = new Headers()
+  headers.set('Content-Type', obj.httpMetadata?.contentType || 'application/octet-stream')
+  headers.set('Content-Length', obj.size.toString())
+  headers.set('Cache-Control', 'public, max-age=3600')
+
+  return new Response(obj.body, { headers })
 })

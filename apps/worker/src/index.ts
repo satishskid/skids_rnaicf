@@ -152,8 +152,10 @@ app.use('/api/training', authMiddleware)
 app.use('/api/training/*', authMiddleware)
 app.route('/api', trainingRoutes)
 
-// R2 — APK download is public, presign/upload require auth
+// R2 — APK download is public, presign/upload/file require auth
 app.use('/api/r2/presign', authMiddleware)
+app.use('/api/r2/upload', authMiddleware)
+app.use('/api/r2/file/*', authMiddleware)
 app.route('/api/r2', r2Routes)
 
 // AyuSynk — webhook POST is public, GET is auth-protected per-handler
