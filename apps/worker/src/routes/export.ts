@@ -56,12 +56,30 @@ async function fetchCampaignData(db: any, campaignCode: string) {
   return { children, observations }
 }
 
+// Authority-scoped campaign access check
+async function verifyAuthorityAccess(db: any, userId: string, userRole: string, campaignCode: string): Promise<boolean> {
+  if (userRole === 'admin' || userRole === 'ops_manager') return true
+  if (userRole !== 'authority') return true // nurse/doctor can export their own
+
+  const result = await db.execute({
+    sql: 'SELECT 1 FROM campaign_assignments WHERE user_id = ? AND campaign_code = ?',
+    args: [userId, campaignCode],
+  })
+  return (result.rows?.length ?? 0) > 0
+}
+
 // GET /prevalence?campaign=CODE
 app.get('/prevalence', async (c) => {
   const campaignCode = c.req.query('campaign')
   if (!campaignCode) return c.json({ error: 'campaign query param required' }, 400)
 
   const db = c.get('db')
+  const userId = c.get('userId') || ''
+  const userRole = c.get('userRole') || ''
+  if (!(await verifyAuthorityAccess(db, userId, userRole, campaignCode))) {
+    return c.json({ error: 'Authority users can only export assigned campaigns' }, 403)
+  }
+
   const { children, observations } = await fetchCampaignData(db, campaignCode)
   const report = computePrevalenceReport(children, observations, campaignCode)
   const csv = exportConditionsToCSV(report)
@@ -78,6 +96,13 @@ app.get('/prevalence', async (c) => {
 app.get('/full', async (c) => {
   const campaignCode = c.req.query('campaign')
   if (!campaignCode) return c.json({ error: 'campaign query param required' }, 400)
+
+  const db2 = c.get('db')
+  const userId2 = c.get('userId') || ''
+  const userRole2 = c.get('userRole') || ''
+  if (!(await verifyAuthorityAccess(db2, userId2, userRole2, campaignCode))) {
+    return c.json({ error: 'Authority users can only export assigned campaigns' }, 403)
+  }
 
   const db = c.get('db')
   const { children, observations } = await fetchCampaignData(db, campaignCode)

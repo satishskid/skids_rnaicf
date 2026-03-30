@@ -131,6 +131,17 @@ interface ChildGroup {
   latestTimestamp: string
 }
 
+const SEVERITY_OPTIONS = ['normal', 'mild', 'moderate', 'severe'] as const
+
+const BATCH_TEMPLATES: { label: string; decision: Decision; notes: string }[] = [
+  { label: 'Refer to ENT', decision: 'refer', notes: 'Referred to ENT specialist for evaluation.' },
+  { label: 'Refer to Ophthalmology', decision: 'refer', notes: 'Referred to ophthalmology for vision assessment.' },
+  { label: 'Refer to Dermatology', decision: 'refer', notes: 'Referred to dermatologist for skin evaluation.' },
+  { label: 'Nutritional Follow-up', decision: 'follow_up', notes: 'Nutritional counseling and follow-up in 4 weeks.' },
+  { label: 'Growth Monitoring', decision: 'follow_up', notes: 'Growth monitoring — recheck height/weight in 3 months.' },
+  { label: 'Dental Treatment', decision: 'refer', notes: 'Referred to dental clinic for caries treatment.' },
+]
+
 // ── Main Page ──
 
 export function DoctorInboxPage() {
@@ -145,6 +156,13 @@ export function DoctorInboxPage() {
   const [saving, setSaving] = useState<Record<string, boolean>>({})
   const [bulkSaving, setBulkSaving] = useState(false)
   const [bulkApproving, setBulkApproving] = useState(false)
+
+  // Review speed tracking
+  const [childExpandedAt, setChildExpandedAt] = useState<number | null>(null)
+  const [reviewTimes, setReviewTimes] = useState<number[]>([])
+  const avgReviewTime = reviewTimes.length > 0
+    ? Math.round(reviewTimes.reduce((s, t) => s + t, 0) / reviewTimes.length)
+    : 0
 
   // AI state
   const [aiSummaries, setAiSummaries] = useState<Record<string, { loading: boolean; text?: string; error?: string; responses?: LLMResponse[] }>>({})
@@ -439,13 +457,25 @@ export function DoctorInboxPage() {
     return (risk === 'no_risk' || !risk) && !reviewByObsId[obs.id]
   }).length
 
-  // Prev/next child navigation
+  // Prev/next child navigation with timer tracking
   const currentChildIndex = sortedGroups.findIndex(g => g.child.id === expandedChild)
+
+  const recordTimeAndNavigate = useCallback((newChildId: string | null) => {
+    if (childExpandedAt && expandedChild) {
+      const elapsed = Math.round((Date.now() - childExpandedAt) / 1000)
+      if (elapsed > 2 && elapsed < 600) { // ignore < 2s (accidental) and > 10min (idle)
+        setReviewTimes(prev => [...prev.slice(-49), elapsed]) // keep last 50
+      }
+    }
+    setExpandedChild(newChildId)
+    setChildExpandedAt(newChildId ? Date.now() : null)
+  }, [childExpandedAt, expandedChild])
+
   const goToPrevChild = () => {
-    if (currentChildIndex > 0) setExpandedChild(sortedGroups[currentChildIndex - 1].child.id)
+    if (currentChildIndex > 0) recordTimeAndNavigate(sortedGroups[currentChildIndex - 1].child.id)
   }
   const goToNextChild = () => {
-    if (currentChildIndex < sortedGroups.length - 1) setExpandedChild(sortedGroups[currentChildIndex + 1].child.id)
+    if (currentChildIndex < sortedGroups.length - 1) recordTimeAndNavigate(sortedGroups[currentChildIndex + 1].child.id)
   }
 
   // Draft auto-save to localStorage
@@ -603,7 +633,7 @@ export function DoctorInboxPage() {
       {selectedCampaign && !isDataLoading && (
         <>
           {/* Stats row */}
-          <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-5">
             <div className="rounded-xl border border-gray-200 bg-white p-4 text-center">
               <p className="text-2xl font-bold text-gray-900">{childGroups.length}</p>
               <p className="text-xs text-gray-500">Children</p>
@@ -625,6 +655,15 @@ export function DoctorInboxPage() {
                 {childGroups.filter((g) => g.reviewStatus === 'complete').length}
               </p>
               <p className="text-xs text-gray-500">Completed</p>
+            </div>
+            <div className="rounded-xl border border-gray-200 bg-white p-4 text-center">
+              <p className="text-2xl font-bold text-purple-600">
+                {avgReviewTime > 0 ? `${avgReviewTime}s` : '--'}
+              </p>
+              <p className="text-xs text-gray-500">Avg Review Time</p>
+              {reviewTimes.length > 0 && (
+                <p className="text-[9px] text-gray-400 mt-0.5">{reviewTimes.length} reviewed</p>
+              )}
             </div>
           </div>
 
@@ -707,7 +746,7 @@ export function DoctorInboxPage() {
                   group={group}
                   expanded={expandedChild === group.child.id}
                   onToggle={() =>
-                    setExpandedChild(expandedChild === group.child.id ? null : group.child.id)
+                    recordTimeAndNavigate(expandedChild === group.child.id ? null : group.child.id)
                   }
                   reviewByObsId={reviewByObsId}
                   getDraft={getDraft}
@@ -1054,33 +1093,52 @@ function ObservationCard({
                         : 'bg-indigo-50 border-indigo-200 text-indigo-700'
 
               return (
-                <button
-                  key={chip}
-                  disabled={!!existingReview}
-                  onClick={() => {
-                    if (existingReview) return
-                    const current = draft.chipVerdicts?.[chip]
-                    let next: ChipVerdict
-                    if (!current) {
-                      next = { confirmed: true } // first click = confirm
-                    } else if (current.confirmed) {
-                      next = { confirmed: false } // second click = reject
-                    } else {
-                      // third click = remove verdict (cycle back to unset)
-                      const updated = { ...draft.chipVerdicts }
-                      delete updated[chip]
-                      onUpdateDraft({ chipVerdicts: updated })
-                      return
-                    }
-                    onUpdateDraft({
-                      chipVerdicts: { ...draft.chipVerdicts, [chip]: next }
-                    })
-                  }}
-                  className={`rounded-full border px-2 py-0.5 text-[10px] font-medium transition-all cursor-pointer ${colorClass} ${!existingReview ? 'hover:ring-2 hover:ring-blue-200' : ''}`}
-                  title={isConfirmed ? 'Confirmed — click to reject' : isRejected ? 'Rejected — click to clear' : 'Click to confirm'}
-                >
-                  {isConfirmed && '✓ '}{isRejected && '✗ '}{chip}{severity && severity !== 'normal' ? ` (${severity})` : ''}
-                </button>
+                <span key={chip} className="inline-flex items-center gap-0.5">
+                  <button
+                    disabled={!!existingReview}
+                    onClick={() => {
+                      if (existingReview) return
+                      const current = draft.chipVerdicts?.[chip]
+                      let next: ChipVerdict
+                      if (!current) {
+                        next = { confirmed: true }
+                      } else if (current.confirmed) {
+                        next = { confirmed: false }
+                      } else {
+                        const updated = { ...draft.chipVerdicts }
+                        delete updated[chip]
+                        onUpdateDraft({ chipVerdicts: updated })
+                        return
+                      }
+                      onUpdateDraft({
+                        chipVerdicts: { ...draft.chipVerdicts, [chip]: next }
+                      })
+                    }}
+                    className={`rounded-l-full border px-2 py-0.5 text-[10px] font-medium transition-all cursor-pointer ${colorClass} ${!existingReview ? 'hover:ring-2 hover:ring-blue-200' : ''}`}
+                    title={isConfirmed ? 'Confirmed — click to reject' : isRejected ? 'Rejected — click to clear' : 'Click to confirm'}
+                  >
+                    {isConfirmed && '✓ '}{isRejected && '✗ '}{chip}{severity && severity !== 'normal' ? ` (${verdict?.correctedSeverity || severity})` : ''}
+                  </button>
+                  {/* Severity correction dropdown — only for confirmed chips without review */}
+                  {isConfirmed && !existingReview && (
+                    <select
+                      value={verdict?.correctedSeverity || severity || 'normal'}
+                      onChange={e => {
+                        onUpdateDraft({
+                          chipVerdicts: {
+                            ...draft.chipVerdicts,
+                            [chip]: { ...verdict!, correctedSeverity: e.target.value }
+                          }
+                        })
+                      }}
+                      className="h-5 rounded-r-full border border-l-0 border-green-400 bg-green-50 px-1 text-[9px] text-green-800 focus:outline-none"
+                    >
+                      {SEVERITY_OPTIONS.map(s => (
+                        <option key={s} value={s}>{s}</option>
+                      ))}
+                    </select>
+                  )}
+                </span>
               )
             })}
           </div>
@@ -1119,6 +1177,26 @@ function ObservationCard({
             <span className="rounded bg-gray-100 px-1.5 py-0.5 font-mono">Ctrl+F</span> Follow Up
             <span className="rounded bg-gray-100 px-1.5 py-0.5 font-mono">Ctrl+S</span> Save
             <span className="rounded bg-gray-100 px-1.5 py-0.5 font-mono">←→</span> Nav
+          </div>
+
+          {/* Quick batch templates */}
+          <div>
+            <p className="mb-1 text-[10px] font-medium text-gray-400 uppercase tracking-wide">Quick Templates</p>
+            <div className="flex flex-wrap gap-1.5">
+              {BATCH_TEMPLATES.map(t => (
+                <button
+                  key={t.label}
+                  onClick={() => onUpdateDraft({ decision: t.decision, notes: t.notes })}
+                  className={`rounded-lg border px-2.5 py-1 text-[10px] font-medium transition-all ${
+                    draft.decision === t.decision && draft.notes === t.notes
+                      ? 'border-blue-400 bg-blue-50 text-blue-700 ring-1 ring-blue-300'
+                      : 'border-gray-200 bg-white text-gray-600 hover:bg-gray-50'
+                  }`}
+                >
+                  {t.label}
+                </button>
+              ))}
+            </div>
           </div>
 
           {/* Decision buttons */}

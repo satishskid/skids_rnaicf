@@ -82,6 +82,7 @@ export function AuthorityDashboardPage() {
   const [sortDir, setSortDir] = useState<SortDir>('asc')
   const [dropdownOpen, setDropdownOpen] = useState(false)
   const [drillDownCode, setDrillDownCode] = useState<string | null>(null)
+  const [lastRefreshed, setLastRefreshed] = useState<Date | null>(null)
 
   // Auto-select all active campaigns on first load
   useEffect(() => {
@@ -121,6 +122,7 @@ export function AuthorityDashboardPage() {
         }),
       )
       setAggregations(results)
+      setLastRefreshed(new Date())
     } catch {
       // Silently handle — partial data is still useful
     } finally {
@@ -373,13 +375,32 @@ export function AuthorityDashboardPage() {
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div>
-        <h1 className="text-2xl font-bold text-gray-900">
-          Authority Dashboard
-        </h1>
-        <p className="mt-1 text-sm text-gray-500">
-          Population health analytics aggregated across screening campaigns.
-        </p>
+      <div className="flex items-start justify-between">
+        <div>
+          <h1 className="text-2xl font-bold text-gray-900">
+            Authority Dashboard
+          </h1>
+          <p className="mt-1 text-sm text-gray-500">
+            Population health analytics aggregated across screening campaigns.
+          </p>
+        </div>
+        <div className="flex items-center gap-3">
+          {lastRefreshed && (
+            <span className="text-xs text-gray-400">
+              Updated {Math.round((Date.now() - lastRefreshed.getTime()) / 60000) < 1
+                ? 'just now'
+                : `${Math.round((Date.now() - lastRefreshed.getTime()) / 60000)}m ago`}
+            </span>
+          )}
+          <button
+            onClick={fetchAggregations}
+            disabled={fetching}
+            className="flex items-center gap-1.5 rounded-lg border border-gray-300 bg-white px-3 py-1.5 text-xs font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50"
+          >
+            {fetching ? <span className="h-3 w-3 animate-spin rounded-full border-2 border-blue-400 border-t-transparent" /> : <Activity className="h-3 w-3" />}
+            Refresh
+          </button>
+        </div>
       </div>
 
       {/* Campaign Multi-Select */}
@@ -826,6 +847,72 @@ export function AuthorityDashboardPage() {
               </div>
             )}
           </div>
+
+          {/* Campaign-to-Campaign Comparison */}
+          {campaignRows.length >= 2 && (
+            <div className="rounded-xl border border-gray-200 bg-white p-6">
+              <h3 className="text-base font-semibold text-gray-900 mb-4">Campaign Comparison Matrix</h3>
+              <div className="overflow-x-auto">
+                <table className="min-w-full text-xs">
+                  <thead>
+                    <tr>
+                      <th className="px-3 py-2 text-left text-gray-500 font-medium">Metric</th>
+                      {campaignRows.slice(0, 6).map(r => (
+                        <th key={r.code} className="px-3 py-2 text-center text-gray-700 font-semibold">{r.name.length > 20 ? r.name.slice(0, 18) + '...' : r.name}</th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-100">
+                    <tr>
+                      <td className="px-3 py-2 font-medium text-gray-600">Children</td>
+                      {campaignRows.slice(0, 6).map(r => (
+                        <td key={r.code} className="px-3 py-2 text-center font-semibold text-gray-900">{r.childrenCount}</td>
+                      ))}
+                    </tr>
+                    <tr>
+                      <td className="px-3 py-2 font-medium text-gray-600">Observations</td>
+                      {campaignRows.slice(0, 6).map(r => (
+                        <td key={r.code} className="px-3 py-2 text-center text-gray-700">{r.obsCount}</td>
+                      ))}
+                    </tr>
+                    <tr>
+                      <td className="px-3 py-2 font-medium text-gray-600">High Risk %</td>
+                      {campaignRows.slice(0, 6).map(r => (
+                        <td key={r.code} className="px-3 py-2 text-center">
+                          <span className={`rounded-full px-2 py-0.5 font-medium ${
+                            r.hrPct > 20 ? 'bg-red-100 text-red-700' : r.hrPct > 10 ? 'bg-yellow-100 text-yellow-700' : 'bg-green-100 text-green-700'
+                          }`}>
+                            {r.hrPct}%
+                          </span>
+                        </td>
+                      ))}
+                    </tr>
+                    <tr>
+                      <td className="px-3 py-2 font-medium text-gray-600">Completion %</td>
+                      {campaignRows.slice(0, 6).map(r => (
+                        <td key={r.code} className="px-3 py-2 text-center">
+                          <div className="flex items-center justify-center gap-1.5">
+                            <div className="h-1.5 w-10 rounded-full bg-gray-100">
+                              <div className="h-1.5 rounded-full bg-blue-500" style={{ width: `${Math.min(100, r.completionPct)}%` }} />
+                            </div>
+                            <span className="text-gray-500">{r.completionPct}%</span>
+                          </div>
+                        </td>
+                      ))}
+                    </tr>
+                    <tr>
+                      <td className="px-3 py-2 font-medium text-gray-600">Obs/Child</td>
+                      {campaignRows.slice(0, 6).map(r => (
+                        <td key={r.code} className="px-3 py-2 text-center text-gray-700">
+                          {r.childrenCount > 0 ? (r.obsCount / r.childrenCount).toFixed(1) : '0'}
+                        </td>
+                      ))}
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
 
           {/* Module Coverage */}
           <div className="rounded-xl border border-gray-200 bg-white p-6">
