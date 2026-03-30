@@ -297,7 +297,7 @@ app.get('/population-health/dashboard', async (c) => {
   const orgFilter = orgCode ? ' WHERE org_code = ?' : ''
   const orgArgs = orgCode ? [orgCode] : []
 
-  const [byState, byDistrict] = await Promise.all([
+  const [byState, byDistrict, byCity] = await Promise.all([
     db.execute({
       sql: `SELECT cam.state, COUNT(DISTINCT ch.id) as children,
                    COUNT(DISTINCT CASE WHEN o.id IS NOT NULL THEN ch.id END) as screened,
@@ -322,6 +322,18 @@ app.get('/population-health/dashboard', async (c) => {
             GROUP BY cam.district, cam.state ORDER BY children DESC`,
       args: orgArgs,
     }),
+    db.execute({
+      sql: `SELECT cam.city, cam.district, cam.state, COUNT(DISTINCT ch.id) as children,
+                   COUNT(DISTINCT CASE WHEN o.id IS NOT NULL THEN ch.id END) as screened,
+                   COUNT(DISTINCT cam.code) as campaigns
+            FROM campaigns cam
+            LEFT JOIN children ch ON ch.campaign_code = cam.code
+            LEFT JOIN observations o ON o.child_id = ch.id
+            ${orgFilter ? 'WHERE cam.org_code = ?' : 'WHERE 1=1'}
+            AND cam.city IS NOT NULL AND cam.city != ''
+            GROUP BY cam.city, cam.district, cam.state ORDER BY children DESC`,
+      args: orgArgs,
+    }),
   ])
 
   return c.json({
@@ -332,6 +344,7 @@ app.get('/population-health/dashboard', async (c) => {
     campaigns: campaignResult.rows,
     byState: byState.rows,
     byDistrict: byDistrict.rows,
+    byCity: byCity.rows,
   })
 })
 

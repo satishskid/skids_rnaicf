@@ -14,9 +14,13 @@ import {
   MapPin,
   ChevronRight,
 } from 'lucide-react'
+import { lazy, Suspense } from 'react'
 import { StatsCard } from '../components/StatsCard'
 import { LoadingSpinner } from '../components/LoadingSpinner'
 import { CampaignProgress } from '../components/CampaignProgress'
+import { TemporalTrends } from '../components/analytics/TemporalTrends'
+
+const CampaignMap = lazy(() => import('../components/analytics/CampaignMap').then(m => ({ default: m.CampaignMap })))
 import { useApi } from '../lib/hooks'
 import { apiCall } from '../lib/api'
 import {
@@ -649,6 +653,47 @@ export function AuthorityDashboardPage() {
                 />
               </div>
             )}
+          </div>
+
+          {/* Geographic Map */}
+          <div className="rounded-xl border border-gray-200 bg-white p-6">
+            <div className="flex items-center gap-2 mb-4">
+              <MapPin className="h-4 w-4 text-gray-400" />
+              <h3 className="text-base font-semibold text-gray-900">Campaign Locations</h3>
+              <span className="text-xs text-gray-400">Click a pin to drill down</span>
+            </div>
+            <Suspense fallback={<div className="h-80 flex items-center justify-center text-sm text-gray-400">Loading map...</div>}>
+              <CampaignMap
+                campaigns={campaignRows.map(row => {
+                  const campaign = allCampaigns.find(c => c.code === row.code) as Record<string, unknown> | undefined
+                  return {
+                    code: row.code,
+                    name: row.name,
+                    lat: Number(campaign?.lat || 0),
+                    lng: Number(campaign?.lng || 0),
+                    childrenCount: row.childrenCount,
+                    screenedCount: row.obsCount,
+                    highRiskCount: Math.round(row.obsCount * row.hrPct / 100),
+                    highRiskPct: row.hrPct,
+                  }
+                })}
+                onSelectCampaign={setDrillDownCode}
+              />
+            </Suspense>
+          </div>
+
+          {/* Temporal Trends */}
+          <div className="rounded-xl border border-gray-200 bg-white p-6">
+            <div className="flex items-center gap-2 mb-4">
+              <TrendingUp className="h-4 w-4 text-gray-400" />
+              <h3 className="text-base font-semibold text-gray-900">Screening Trends</h3>
+            </div>
+            <TemporalTrends observations={allObservations.map(o => ({
+              id: o.id,
+              moduleType: o.moduleType,
+              timestamp: (o as Record<string, unknown>).timestamp as string | undefined,
+              aiAnnotations: o.aiAnnotations,
+            }))} />
           </div>
 
           {/* Drill-down View */}

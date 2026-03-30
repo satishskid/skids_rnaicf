@@ -104,14 +104,22 @@ interface ReviewsResponse {
 }
 
 type FilterMode = 'all' | 'high_risk' | 'pending' | 'completed'
+type ModuleFilter = 'all' | string
 type SortMode = 'risk' | 'name' | 'date'
 type Decision = 'approve' | 'refer' | 'follow_up' | 'discharge' | 'retake'
 type QualityRating = 'good' | 'fair' | 'poor'
+
+interface ChipVerdict {
+  confirmed: boolean // true = agree, false = disagree
+  correctedSeverity?: string // doctor's corrected severity
+  note?: string
+}
 
 interface DraftReview {
   decision?: Decision
   qualityRating?: QualityRating
   notes: string
+  chipVerdicts?: Record<string, ChipVerdict> // per-chip confirm/correct
 }
 
 interface ChildGroup {
@@ -132,6 +140,7 @@ export function DoctorInboxPage() {
   const [filter, setFilter] = useState<FilterMode>('all')
   const [sort, setSort] = useState<SortMode>('risk')
   const [searchQuery, setSearchQuery] = useState('')
+  const [moduleFilter, setModuleFilter] = useState<ModuleFilter>('all')
   const [drafts, setDrafts] = useState<Record<string, DraftReview>>({})
   const [saving, setSaving] = useState<Record<string, boolean>>({})
   const [bulkSaving, setBulkSaving] = useState(false)
@@ -265,9 +274,25 @@ export function DoctorInboxPage() {
     })
   }, [observations, children, reviewByObsId])
 
-  // Filter (includes search)
+  // Get unique module types for filter dropdown
+  const uniqueModuleTypes = useMemo(() => {
+    const types = new Set<string>()
+    for (const obs of observations) types.add(obs.moduleType)
+    return Array.from(types).sort()
+  }, [observations])
+
+  // Filter (includes search + module filter)
   const filteredGroups = useMemo(() => {
-    return childGroups.filter((g) => {
+    return childGroups.map(g => {
+      // If module filter is active, filter observations within each child
+      if (moduleFilter !== 'all') {
+        const filtered = g.observations.filter(o => o.moduleType === moduleFilter)
+        if (filtered.length === 0) return null
+        return { ...g, observations: filtered }
+      }
+      return g
+    }).filter((g): g is ChildGroup => {
+      if (!g) return false
       // Search filter
       if (searchQuery.trim()) {
         const q = searchQuery.toLowerCase()
@@ -280,7 +305,7 @@ export function DoctorInboxPage() {
       if (filter === 'completed') return g.reviewStatus === 'complete'
       return true
     })
-  }, [childGroups, filter, searchQuery])
+  }, [childGroups, filter, searchQuery, moduleFilter])
 
   // Sort
   const sortedGroups = useMemo(() => {
@@ -325,6 +350,7 @@ export function DoctorInboxPage() {
             decision: draft.decision,
             qualityRating: draft.qualityRating,
             notes: draft.notes || undefined,
+            chipVerdicts: draft.chipVerdicts || undefined,
           }),
         })
         setDrafts((prev) => {
@@ -438,6 +464,62 @@ export function DoctorInboxPage() {
       } catch { /* ignore */ }
     }
   }, [selectedCampaign])
+
+  // Keyboard shortcuts for rapid review
+  useEffect(() => {
+    function handleKeyDown(e: KeyboardEvent) {
+      // Only when a child is expanded and not in a text input
+      if (!expandedChild) return
+      const target = e.target as HTMLElement
+      if (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.tagName === 'SELECT') return
+
+      const group = sortedGroups.find(g => g.child.id === expandedChild)
+      if (!group) return
+
+      // Find first unreviewed observation for keyboard action
+      const firstUnreviewed = group.observations.find(o => !reviewByObsId[o.id])
+      if (!firstUnreviewed) return
+      const obsId = firstUnreviewed.id
+
+      if (e.ctrlKey || e.metaKey) {
+        switch (e.key.toLowerCase()) {
+          case 'a': // Ctrl+A = Approve
+            e.preventDefault()
+            updateDraft(obsId, { decision: 'approve' })
+            break
+          case 'r': // Ctrl+R = Refer
+            e.preventDefault()
+            updateDraft(obsId, { decision: 'refer' })
+            break
+          case 'f': // Ctrl+F = Follow Up
+            e.preventDefault()
+            updateDraft(obsId, { decision: 'follow_up' })
+            break
+          case 'd': // Ctrl+D = Discharge
+            e.preventDefault()
+            updateDraft(obsId, { decision: 'discharge' })
+            break
+          case 's': // Ctrl+S = Save review
+            e.preventDefault()
+            saveReview(obsId)
+            break
+        }
+      } else {
+        switch (e.key) {
+          case 'ArrowLeft':
+            e.preventDefault()
+            goToPrevChild()
+            break
+          case 'ArrowRight':
+            e.preventDefault()
+            goToNextChild()
+            break
+        }
+      }
+    }
+    window.addEventListener('keydown', handleKeyDown)
+    return () => window.removeEventListener('keydown', handleKeyDown)
+  }, [expandedChild, sortedGroups, reviewByObsId, updateDraft, saveReview, goToPrevChild, goToNextChild])
 
   return (
     <div className="space-y-6">
@@ -579,6 +661,19 @@ export function DoctorInboxPage() {
                 </button>
               ))}
             </div>
+            {/* Module-type filter */}
+            {uniqueModuleTypes.length > 1 && (
+              <select
+                value={moduleFilter}
+                onChange={e => setModuleFilter(e.target.value)}
+                className="rounded-lg border border-gray-300 bg-white px-2.5 py-1.5 text-xs text-gray-700 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+              >
+                <option value="all">All Modules</option>
+                {uniqueModuleTypes.map(mt => (
+                  <option key={mt} value={mt}>{getModuleName(mt)}</option>
+                ))}
+              </select>
+            )}
             <div className="flex items-center gap-1.5">
               <ArrowUpDown className="h-4 w-4 text-gray-400" />
               {(['risk', 'name', 'date'] as SortMode[]).map((s) => (
@@ -931,22 +1026,64 @@ function ObservationCard({
         <p className="mt-3 rounded-lg bg-gray-50 p-3 text-sm text-gray-700">{summaryText}</p>
       )}
 
-      {/* Nurse chips with severity colors */}
+      {/* Nurse chips with per-chip confirm/correct */}
       {obs.annotationData?.selectedChips && obs.annotationData.selectedChips.length > 0 && (
-        <div className="mt-3 flex flex-wrap gap-1.5">
-          {obs.annotationData.selectedChips.map(chip => {
-            const chipSeverities = (obs.annotationData as Record<string, unknown>)?.chipSeverities as Record<string, string> | undefined
-            const severity = chipSeverities?.[chip]
-            const colorClass = severity === 'severe' ? 'bg-red-50 border-red-200 text-red-700'
-              : severity === 'moderate' ? 'bg-amber-50 border-amber-200 text-amber-700'
-              : severity === 'mild' ? 'bg-yellow-50 border-yellow-200 text-yellow-700'
-              : 'bg-indigo-50 border-indigo-200 text-indigo-700'
-            return (
-              <span key={chip} className={`rounded-full border px-2 py-0.5 text-[10px] font-medium ${colorClass}`}>
-                {chip}{severity && severity !== 'normal' ? ` (${severity})` : ''}
-              </span>
-            )
-          })}
+        <div className="mt-3">
+          <div className="flex items-center gap-2 mb-1.5">
+            <span className="text-[10px] font-medium text-gray-500 uppercase tracking-wide">Findings ({obs.annotationData.selectedChips.length})</span>
+            {!existingReview && (
+              <span className="text-[9px] text-gray-400">Click to confirm/correct each finding</span>
+            )}
+          </div>
+          <div className="flex flex-wrap gap-1.5">
+            {obs.annotationData.selectedChips.map(chip => {
+              const chipSeverities = (obs.annotationData as Record<string, unknown>)?.chipSeverities as Record<string, string> | undefined
+              const severity = chipSeverities?.[chip]
+              const verdict = draft.chipVerdicts?.[chip]
+              const isConfirmed = verdict?.confirmed === true
+              const isRejected = verdict?.confirmed === false
+
+              // Color: confirmed=green, rejected=red/strikethrough, default=severity-based
+              const colorClass = isConfirmed
+                ? 'bg-green-50 border-green-400 text-green-800 ring-1 ring-green-300'
+                : isRejected
+                  ? 'bg-red-50 border-red-300 text-red-500 line-through ring-1 ring-red-200'
+                  : severity === 'severe' ? 'bg-red-50 border-red-200 text-red-700'
+                    : severity === 'moderate' ? 'bg-amber-50 border-amber-200 text-amber-700'
+                      : severity === 'mild' ? 'bg-yellow-50 border-yellow-200 text-yellow-700'
+                        : 'bg-indigo-50 border-indigo-200 text-indigo-700'
+
+              return (
+                <button
+                  key={chip}
+                  disabled={!!existingReview}
+                  onClick={() => {
+                    if (existingReview) return
+                    const current = draft.chipVerdicts?.[chip]
+                    let next: ChipVerdict
+                    if (!current) {
+                      next = { confirmed: true } // first click = confirm
+                    } else if (current.confirmed) {
+                      next = { confirmed: false } // second click = reject
+                    } else {
+                      // third click = remove verdict (cycle back to unset)
+                      const updated = { ...draft.chipVerdicts }
+                      delete updated[chip]
+                      onUpdateDraft({ chipVerdicts: updated })
+                      return
+                    }
+                    onUpdateDraft({
+                      chipVerdicts: { ...draft.chipVerdicts, [chip]: next }
+                    })
+                  }}
+                  className={`rounded-full border px-2 py-0.5 text-[10px] font-medium transition-all cursor-pointer ${colorClass} ${!existingReview ? 'hover:ring-2 hover:ring-blue-200' : ''}`}
+                  title={isConfirmed ? 'Confirmed — click to reject' : isRejected ? 'Rejected — click to clear' : 'Click to confirm'}
+                >
+                  {isConfirmed && '✓ '}{isRejected && '✗ '}{chip}{severity && severity !== 'normal' ? ` (${severity})` : ''}
+                </button>
+              )
+            })}
+          </div>
         </div>
       )}
 
@@ -975,6 +1112,15 @@ function ObservationCard({
       {/* Inline review form (only if no existing review) */}
       {!existingReview && (
         <div className="mt-4 space-y-3 border-t border-gray-100 pt-4">
+          {/* Keyboard shortcut hint */}
+          <div className="flex items-center gap-2 text-[9px] text-gray-400">
+            <span className="rounded bg-gray-100 px-1.5 py-0.5 font-mono">Ctrl+A</span> Approve
+            <span className="rounded bg-gray-100 px-1.5 py-0.5 font-mono">Ctrl+R</span> Refer
+            <span className="rounded bg-gray-100 px-1.5 py-0.5 font-mono">Ctrl+F</span> Follow Up
+            <span className="rounded bg-gray-100 px-1.5 py-0.5 font-mono">Ctrl+S</span> Save
+            <span className="rounded bg-gray-100 px-1.5 py-0.5 font-mono">←→</span> Nav
+          </div>
+
           {/* Decision buttons */}
           <div>
             <p className="mb-1.5 text-xs font-medium text-gray-500">Decision</p>
