@@ -34,6 +34,7 @@ import { InstrumentBuilderPage } from './pages/InstrumentBuilder'
 import { StudiesPage } from './pages/Studies'
 import { StudyDetailPage } from './pages/StudyDetail'
 import { PopulationHealthPage } from './pages/PopulationHealth'
+import { AuditLogPage } from './pages/AuditLog'
 
 export function App() {
   return (
@@ -64,6 +65,7 @@ export function App() {
             <Route path="/studies/:id" element={<StudyDetailPage />} />
             <Route path="/population-health" element={<PopulationHealthPage />} />
             <Route path="/settings" element={<SettingsPage />} />
+            <Route path="/audit-log" element={<AuditLogPage />} />
 
             {/* Screening routes (lazy-loaded) */}
             <Route path="/screen/:code" element={<Suspense fallback={<div className="p-8 text-center">Loading...</div>}><ScreeningPage /></Suspense>} />

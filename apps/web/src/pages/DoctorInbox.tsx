@@ -24,6 +24,8 @@ import {
 import { StatusBadge } from '../components/StatusBadge'
 import { LoadingSpinner } from '../components/LoadingSpinner'
 import { EmptyState } from '../components/EmptyState'
+import { MedicalDisclaimer } from '../components/MedicalDisclaimer'
+import { ConfidenceBadge } from '../components/ConfidenceBadge'
 import { useApi } from '../lib/hooks'
 import { apiCall } from '../lib/api'
 import { useAuth } from '../lib/auth'
@@ -943,6 +945,9 @@ function ChildRow({
             </div>
           )}
 
+          {/* Medical disclaimer */}
+          <MedicalDisclaimer variant="compact" className="mb-4" />
+
           {/* Module-grouped observations */}
           {vitalObs.length > 0 && (
             <div className="mb-4">
@@ -1047,6 +1052,9 @@ function ObservationCard({
         </div>
         <div className="flex items-center gap-2">
           {risk && <StatusBadge status={risk} />}
+          {obs.aiAnnotations?.[0]?.confidence != null && (
+            <ConfidenceBadge confidence={obs.aiAnnotations[0].confidence} />
+          )}
           <span
             className={`rounded-full px-2 py-0.5 text-xs font-medium ${
               quality.grade === 'good'

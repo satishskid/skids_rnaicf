@@ -31,6 +31,7 @@ import { instrumentRoutes } from './routes/instruments'
 import { studyRoutes } from './routes/studies'
 import { cohortRoutes } from './routes/cohorts'
 import { deviceStatusRoutes } from './routes/device-status'
+import { auditLogRoutes } from './routes/audit-log'
 import { createTursoClient } from '@skids/db'
 import { createAuth } from './auth'
 import { authMiddleware, requireRole } from './middleware/auth'
@@ -251,6 +252,13 @@ app.use('/api/device-status/*', authMiddleware)
 app.use('/api/device-status/fleet', requireRole('admin', 'ops_manager'))
 app.use('/api/device-status/fleet/*', requireRole('admin', 'ops_manager'))
 app.route('/api/device-status', deviceStatusRoutes)
+
+// Audit log — admin only
+app.use('/api/audit-log', authMiddleware)
+app.use('/api/audit-log/*', authMiddleware)
+app.use('/api/audit-log', requireRole('admin'))
+app.use('/api/audit-log/*', requireRole('admin'))
+app.route('/api/audit-log', auditLogRoutes)
 
 // Root
 app.get('/', (c) => {

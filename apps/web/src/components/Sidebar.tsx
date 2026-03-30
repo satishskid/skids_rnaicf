@@ -16,23 +16,34 @@ import {
   Smartphone,
   Download,
   ExternalLink,
+  ShieldCheck,
 } from 'lucide-react'
 import { useAuth } from '../lib/auth'
 
 const allNavigation = [
+  // Core — everyone
   { name: 'Dashboard', to: '/', icon: LayoutDashboard, roles: undefined },
   { name: 'Campaigns', to: '/campaigns', icon: Megaphone, roles: ['admin', 'ops_manager', 'doctor', 'nurse'] as string[] },
-  { name: 'Doctor Inbox', to: '/doctor-inbox', icon: Inbox, roles: ['doctor', 'admin', 'ops_manager'] as string[] },
+  // Nurse-specific
+  // (Screening is accessed via Campaign → Child → Start Screening)
+  // Doctor-specific
+  { name: 'Doctor Inbox', to: '/doctor-inbox', icon: Inbox, roles: ['doctor', 'admin'] as string[] },
+  // Authority-specific
   { name: 'Population Health', to: '/authority', icon: Globe, roles: ['authority', 'admin', 'ops_manager'] as string[] },
+  // Analytics — admin, ops, authority
   { name: 'Analytics', to: '/analytics', icon: BarChart3, roles: ['admin', 'ops_manager', 'authority'] as string[] },
-  // Clinical Research Platform
-  { name: 'Consent', to: '/consents', icon: FileCheck, roles: ['admin', 'ops_manager', 'doctor'] as string[] },
-  { name: 'Surveys', to: '/instruments', icon: ClipboardList, roles: ['admin', 'ops_manager', 'doctor'] as string[] },
-  { name: 'Studies', to: '/studies', icon: FlaskConical, roles: ['admin', 'ops_manager', 'doctor'] as string[] },
-  { name: 'Pop Health', to: '/population-health', icon: Activity, roles: ['admin', 'ops_manager', 'authority'] as string[] },
+  { name: 'Pop Health', to: '/population-health', icon: Activity, roles: ['admin', 'ops_manager'] as string[] },
+  // Clinical Research — admin, ops, doctor
+  { name: 'Consent', to: '/consents', icon: FileCheck, roles: ['admin', 'ops_manager'] as string[] },
+  { name: 'Surveys', to: '/instruments', icon: ClipboardList, roles: ['admin', 'ops_manager'] as string[] },
+  { name: 'Studies', to: '/studies', icon: FlaskConical, roles: ['admin'] as string[] },
+  // Admin-only
   { name: 'Users', to: '/admin/users', icon: Users, roles: ['admin'] as string[] },
+  { name: 'Audit Log', to: '/audit-log', icon: ShieldCheck, roles: ['admin'] as string[] },
+  // Help — everyone except authority
   { name: 'Documentation', to: '/docs', icon: BookOpen, roles: ['admin', 'doctor', 'nurse', 'ops_manager'] as string[] },
-  { name: 'Settings', to: '/settings', icon: Settings, roles: undefined },
+  // Settings — admin + ops only (command center)
+  { name: 'Settings', to: '/settings', icon: Settings, roles: ['admin', 'ops_manager'] as string[] },
 ]
 
 export function Sidebar() {

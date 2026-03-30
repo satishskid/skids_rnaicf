@@ -218,6 +218,9 @@ export function VideoAIPanel({
                 <p className="text-xs text-muted-foreground text-center">
                   🔒 100% on-device • No data leaves your {device} • LFM2.5-VL-1.6B via WebGPU
                 </p>
+                <p className="flex items-center justify-center gap-1 text-[9px] text-amber-500 mt-1">
+                  ⚠️ AI suggestions are screening aids only. Use clinical judgment for all observations.
+                </p>
               </div>
             )}
           </>

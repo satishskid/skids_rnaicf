@@ -1,15 +1,39 @@
-import { LogOut, User, Bell } from 'lucide-react'
+import { LogOut, User, Bell, Shield } from 'lucide-react'
 import { useAuth } from '../lib/auth'
+
+const ROLE_TITLES: Record<string, string> = {
+  admin: 'Admin Command Center',
+  ops_manager: 'Operations Dashboard',
+  doctor: 'Doctor Dashboard',
+  nurse: 'Screening Dashboard',
+  authority: 'Authority Analytics',
+}
+
+const ROLE_BADGES: Record<string, { label: string; color: string }> = {
+  admin: { label: 'Admin', color: 'bg-red-100 text-red-700' },
+  ops_manager: { label: 'Ops', color: 'bg-amber-100 text-amber-700' },
+  doctor: { label: 'Doctor', color: 'bg-blue-100 text-blue-700' },
+  nurse: { label: 'Nurse', color: 'bg-green-100 text-green-700' },
+  authority: { label: 'Authority', color: 'bg-purple-100 text-purple-700' },
+}
 
 export function TopBar() {
   const { user, signOut } = useAuth()
+  const role = user?.role || 'nurse'
+  const title = ROLE_TITLES[role] || 'SKIDS Screen'
+  const badge = ROLE_BADGES[role]
 
   return (
     <header className="sticky top-0 z-30 flex h-16 items-center justify-between border-b border-gray-200 bg-white px-6">
-      <div>
-        <h2 className="text-sm font-medium text-gray-500">
-          Doctor Dashboard
+      <div className="flex items-center gap-3">
+        <h2 className="text-sm font-medium text-gray-700">
+          {title}
         </h2>
+        {badge && (
+          <span className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${badge.color}`}>
+            {badge.label}
+          </span>
+        )}
       </div>
 
       <div className="flex items-center gap-4">
