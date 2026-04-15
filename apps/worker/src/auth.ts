@@ -111,7 +111,7 @@ export function createAuth(env: Bindings) {
         // Each campaign has its own member roles
         creatorRole: 'admin',
         memberRole: 'nurse',
-        roles: {
+        roles: ({
           admin: {
             authorize: () => true, // full access — campaign, user mgmt, analytics
           },
@@ -139,7 +139,7 @@ export function createAuth(env: Bindings) {
               return allowed.some(r => ctx.resource?.startsWith(r)) || false
             },
           },
-        },
+        }) as any,
       }),
     ],
     trustedOrigins: [
