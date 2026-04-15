@@ -384,3 +384,35 @@ CREATE TABLE IF NOT EXISTS cohort_definitions (
   updated_at TEXT DEFAULT (datetime('now'))
 );
 CREATE INDEX IF NOT EXISTS idx_cohort_org ON cohort_definitions(org_code);
+
+-- Phase 3 — Sandbox PDF reports
+CREATE TABLE IF NOT EXISTS report_tokens (
+  token_hash TEXT PRIMARY KEY,
+  child_id TEXT NOT NULL REFERENCES children(id),
+  campaign_code TEXT NOT NULL REFERENCES campaigns(code),
+  report_type TEXT NOT NULL CHECK (report_type IN ('fourd', 'child', 'parent')),
+  created_by TEXT,
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  expires_at TEXT NOT NULL,
+  used_at TEXT,
+  revoked_at TEXT,
+  access_count INTEGER NOT NULL DEFAULT 0
+);
+CREATE INDEX IF NOT EXISTS idx_report_tokens_child ON report_tokens(child_id);
+CREATE INDEX IF NOT EXISTS idx_report_tokens_campaign ON report_tokens(campaign_code);
+CREATE INDEX IF NOT EXISTS idx_report_tokens_expiry ON report_tokens(expires_at);
+
+CREATE TABLE IF NOT EXISTS report_renders (
+  cache_key TEXT PRIMARY KEY,
+  report_type TEXT NOT NULL CHECK (report_type IN ('fourd', 'child', 'parent')),
+  child_id TEXT NOT NULL REFERENCES children(id),
+  r2_key TEXT NOT NULL,
+  bytes INTEGER NOT NULL,
+  ms_render INTEGER NOT NULL,
+  template_version TEXT NOT NULL,
+  renderer TEXT NOT NULL DEFAULT 'weasyprint',
+  locale TEXT NOT NULL DEFAULT 'en',
+  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_report_renders_child ON report_renders(child_id, report_type);
+CREATE INDEX IF NOT EXISTS idx_report_renders_created ON report_renders(created_at);
