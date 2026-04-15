@@ -69,8 +69,10 @@ CREATE TABLE IF NOT EXISTS observations (
   annotation_data TEXT,   -- JSON
   clinician_review TEXT,  -- JSON
   risk_level INTEGER DEFAULT 0,
-  -- Vector embedding for similarity search (384-dim for all-MiniLM-L6-v2)
-  -- embedding F32_BLOB(384),  -- Uncomment when Turso vectors are needed
+  -- Vector embedding (Phase 1) — 384-dim bge-small-en-v1.5 via Workers AI
+  embedding F32_BLOB(384),
+  embedding_text_hash TEXT,
+  embedded_at TEXT,
   screened_by TEXT NOT NULL,
   device_id TEXT,
   timestamp TEXT NOT NULL,
@@ -81,6 +83,9 @@ CREATE INDEX IF NOT EXISTS idx_obs_campaign ON observations(campaign_code);
 CREATE INDEX IF NOT EXISTS idx_obs_child ON observations(child_id);
 CREATE INDEX IF NOT EXISTS idx_obs_module ON observations(campaign_code, module_type);
 CREATE INDEX IF NOT EXISTS idx_obs_unsynced ON observations(synced_at) WHERE synced_at IS NULL;
+CREATE INDEX IF NOT EXISTS idx_obs_embedding
+  ON observations(libsql_vector_idx(embedding));
+CREATE INDEX IF NOT EXISTS idx_obs_embedded_at ON observations(embedded_at);
 
 -- Doctor Reviews
 CREATE TABLE IF NOT EXISTS reviews (
