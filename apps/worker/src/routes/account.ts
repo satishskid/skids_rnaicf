@@ -8,6 +8,7 @@ export const accountRoutes = new Hono<{ Bindings: Bindings; Variables: Variables
 accountRoutes.post('/change-password', async (c) => {
   const db = c.get('db')
   const userId = c.get('userId')
+  if (!userId) return c.json({ error: 'Unauthorized' }, 401)
   const body = await c.req.json()
   const { currentPassword, newPassword } = body
 

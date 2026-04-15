@@ -209,3 +209,5 @@ export function MChatScreening({ onResult, childAge }: MChatScreeningProps) {
     </div>
   )
 }
+
+export default MChatScreening

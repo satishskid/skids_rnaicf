@@ -1,6 +1,7 @@
 // Device readiness reporting — nurses/doctors report device status, admin sees fleet
 import { Hono } from 'hono'
 import type { Bindings, Variables } from '../index'
+import type { InValue } from '@libsql/client'
 
 export const deviceStatusRoutes = new Hono<{ Bindings: Bindings; Variables: Variables }>()
 
@@ -72,7 +73,7 @@ deviceStatusRoutes.get('/fleet', async (c) => {
                WHERE ds2.user_id = ds.user_id
                ORDER BY ds2.reported_at DESC LIMIT 1
              )`
-  const args: unknown[] = []
+  const args: InValue[] = []
 
   if (campaignCode) {
     sql = `SELECT ds.*, u.name as user_name, u.email as user_email, u.role as user_role
@@ -128,7 +129,7 @@ deviceStatusRoutes.get('/my', async (c) => {
 
   const result = await db.execute({
     sql: 'SELECT * FROM device_status WHERE user_id = ? ORDER BY reported_at DESC LIMIT 20',
-    args: [userId],
+    args: [userId ?? null],
   })
 
   const history = result.rows.map((row: any) => ({

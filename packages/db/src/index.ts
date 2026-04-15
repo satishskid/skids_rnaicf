@@ -15,8 +15,13 @@ let _client: Client | null = null
 export function getTursoClient(config?: TursoConfig): Client {
   if (_client) return _client
 
-  const url = config?.url || process.env.TURSO_URL
-  const authToken = config?.authToken || process.env.TURSO_AUTH_TOKEN
+  // Local-dev fallback only. In Workers there's no `process`; the worker
+  // always passes `config` through from `c.env`. Access via globalThis so
+  // tsc doesn't require @types/node to know the identifier.
+  const g = globalThis as { process?: { env?: Record<string, string | undefined> } }
+  const env = g.process?.env ?? {}
+  const url = config?.url || env.TURSO_URL
+  const authToken = config?.authToken || env.TURSO_AUTH_TOKEN
 
   if (!url || !authToken) {
     throw new Error('TURSO_URL and TURSO_AUTH_TOKEN are required')

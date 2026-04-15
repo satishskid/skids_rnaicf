@@ -542,3 +542,5 @@ export function NeuroScreening({ step, setStep, onComplete, instructions, childN
     </Card>
   )
 }
+
+export default NeuroScreening

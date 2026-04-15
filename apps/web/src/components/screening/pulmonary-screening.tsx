@@ -517,3 +517,5 @@ export function PulmonaryScreening({
     </div>
   )
 }
+
+export default PulmonaryScreening

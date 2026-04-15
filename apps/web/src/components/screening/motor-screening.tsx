@@ -229,3 +229,5 @@ export function MotorScreening({ step, setStep, onComplete, instructions, childN
     </Card>
   )
 }
+
+export default MotorScreening

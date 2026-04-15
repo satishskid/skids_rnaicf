@@ -1,6 +1,7 @@
 // Campaign CRUD routes
 import { Hono } from 'hono'
 import type { Bindings, Variables } from '../index'
+import type { InValue } from '@libsql/client'
 import { generateCampaignCode } from '@skids/shared'
 
 export const campaignRoutes = new Hono<{ Bindings: Bindings; Variables: Variables }>()
@@ -28,7 +29,7 @@ campaignRoutes.get('/', async (c) => {
                  FROM campaigns c
                  INNER JOIN campaign_assignments ca ON ca.campaign_code = c.code
                  WHERE ca.user_id = ?`
-      const args: unknown[] = [userId]
+      const args: InValue[] = [userId ?? null]
 
       if (stateFilter) { sql += ' AND c.state = ?'; args.push(stateFilter) }
       if (districtFilter) { sql += ' AND c.district = ?'; args.push(districtFilter) }
@@ -44,7 +45,7 @@ campaignRoutes.get('/', async (c) => {
     let sql = `SELECT code, name, school_name, campaign_type, status, total_children,
                       enabled_modules, created_at, city, state, district, lat, lng, reports_released
                FROM campaigns WHERE 1=1`
-    const args: unknown[] = []
+    const args: InValue[] = []
 
     if (stateFilter) { sql += ' AND state = ?'; args.push(stateFilter) }
     if (districtFilter) { sql += ' AND district = ?'; args.push(districtFilter) }
@@ -340,7 +341,7 @@ campaignRoutes.get('/:code/absent', async (c) => {
   const childId = c.req.query('child')
 
   let sql = 'SELECT * FROM absences WHERE campaign_code = ?'
-  const args: unknown[] = [code]
+  const args: InValue[] = [code]
 
   if (childId) {
     sql += ' AND child_id = ?'
@@ -448,7 +449,7 @@ campaignRoutes.post('/:code/archive', async (c) => {
   await db.execute({
     sql: `UPDATE campaigns SET status = 'archived', completed_at = datetime('now'),
           archive_url = ?, archived_by = ? WHERE code = ?`,
-    args: [archiveUrl, userId, code],
+    args: [archiveUrl, userId ?? null, code],
   })
 
   return c.json({

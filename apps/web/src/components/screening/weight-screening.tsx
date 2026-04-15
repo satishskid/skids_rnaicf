@@ -55,3 +55,5 @@ export function WeightScreening({
     />
   )
 }
+
+export default WeightScreening

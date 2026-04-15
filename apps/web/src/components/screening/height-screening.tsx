@@ -55,3 +55,5 @@ export function HeightScreening({
     />
   )
 }
+
+export default HeightScreening

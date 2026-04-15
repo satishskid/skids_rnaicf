@@ -1,6 +1,7 @@
 // Observation CRUD + batch sync routes
 import { Hono } from 'hono'
 import type { Bindings, Variables } from '../index'
+import type { InValue } from '@libsql/client'
 
 import { embedAndStoreBackground } from '../lib/embeddings'
 
@@ -19,7 +20,7 @@ observationRoutes.get('/', async (c) => {
     try {
       const assignment = await db.execute({
         sql: 'SELECT id FROM campaign_assignments WHERE user_id = ? AND campaign_code = ?',
-        args: [userId, campaignCode],
+        args: [userId ?? null, campaignCode],
       })
       if (assignment.rows.length === 0) {
         return c.json({ error: 'Not authorized for this campaign' }, 403)
@@ -30,12 +31,12 @@ observationRoutes.get('/', async (c) => {
   }
 
   let sql = 'SELECT * FROM observations WHERE 1=1'
-  const args: unknown[] = []
+  const args: InValue[] = []
 
   if (userRole === 'authority') {
     // Authority without specific campaign: only see assigned campaigns
     sql += ` AND campaign_code IN (SELECT campaign_code FROM campaign_assignments WHERE user_id = ?)`
-    args.push(userId)
+    args.push(userId ?? null)
   }
 
   if (campaignCode) {
@@ -320,7 +321,7 @@ observationRoutes.get('/accuracy/:moduleType', async (c) => {
              FROM observations o
              WHERE o.module_type = ?
                AND o.clinician_review IS NOT NULL`
-  const args: unknown[] = [moduleType]
+  const args: InValue[] = [moduleType]
 
   if (campaignCode) {
     sql += ' AND o.campaign_code = ?'

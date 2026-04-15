@@ -14,6 +14,7 @@
 
 import { Hono } from 'hono'
 import type { Bindings, Variables } from '../index'
+import type { InValue } from '@libsql/client'
 import { logAudit } from './audit-log'
 
 export const similarityRoutes = new Hono<{ Bindings: Bindings; Variables: Variables }>()
@@ -74,7 +75,7 @@ similarityRoutes.post('/observations', async (c) => {
   }
 
   const filters: string[] = []
-  const filterArgs: unknown[] = []
+  const filterArgs: InValue[] = []
   if (body.campaignCode) {
     filters.push('campaign_code = ?')
     filterArgs.push(body.campaignCode)
@@ -95,7 +96,7 @@ similarityRoutes.post('/observations', async (c) => {
     ORDER BY distance ASC
     LIMIT ?
   `
-  const args: unknown[] = [
+  const args: InValue[] = [
     JSON.stringify(queryVec),
     ...filterArgs,
     body.observationId ?? null,

@@ -55,3 +55,5 @@ export function HemoglobinScreening({
     />
   )
 }
+
+export default HemoglobinScreening

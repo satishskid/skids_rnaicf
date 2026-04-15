@@ -5,6 +5,7 @@
 
 import { Hono } from 'hono'
 import type { Bindings, Variables } from '../index'
+import type { InValue } from '@libsql/client'
 
 const app = new Hono<{ Bindings: Bindings; Variables: Variables }>()
 
@@ -17,7 +18,7 @@ app.get('/', async (c) => {
   const status = c.req.query('status')
 
   let sql = 'SELECT * FROM studies WHERE 1=1'
-  const args: unknown[] = []
+  const args: InValue[] = []
 
   if (orgCode) { sql += ' AND org_code = ?'; args.push(orgCode) }
   if (status) { sql += ' AND status = ?'; args.push(status) }
@@ -142,12 +143,12 @@ app.put('/:id', async (c) => {
   }
 
   const fields: string[] = []
-  const args: unknown[] = []
+  const args: InValue[] = []
 
   for (const [jsKey, dbCol] of Object.entries(fieldMap)) {
     if (body[jsKey] !== undefined) {
       fields.push(`${dbCol} = ?`)
-      args.push(body[jsKey])
+      args.push(body[jsKey] as InValue)
     }
   }
 
@@ -213,7 +214,7 @@ app.post('/:id/events', async (c) => {
     for (let i = 0; i < body.instrumentIds.length; i++) {
       await db.execute({
         sql: 'INSERT INTO study_event_instruments (study_event_id, instrument_id, sort_order) VALUES (?, ?, ?)',
-        args: [event.id, body.instrumentIds[i], i],
+        args: [event.id as InValue, body.instrumentIds[i], i],
       })
     }
   }

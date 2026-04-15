@@ -5,8 +5,12 @@
 import { useParams } from 'react-router-dom'
 import { lazy, Suspense } from 'react'
 
-// Lazy-load each screening module for code splitting
-const modules: Record<string, React.LazyExoticComponent<React.ComponentType<unknown>>> = {
+// Lazy-load each screening module for code splitting. Each underlying
+// component has its own prop shape (ScreeningProps / CustomScreeningProps)
+// — widen to ComponentType<any> here since ModuleScreen passes a superset
+// of props at runtime.
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const modules: Record<string, React.LazyExoticComponent<React.ComponentType<any>>> = {
   abdomen: lazy(() => import('@/components/screening/abdomen-screening')),
   bp: lazy(() => import('@/components/screening/bp-screening')),
   cardiac: lazy(() => import('@/components/screening/cardiac-screening')),

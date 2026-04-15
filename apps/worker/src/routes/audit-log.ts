@@ -5,6 +5,7 @@
 
 import { Hono } from 'hono'
 import type { Bindings, Variables } from '../index'
+import type { InValue } from '@libsql/client'
 
 export const auditLogRoutes = new Hono<{ Bindings: Bindings; Variables: Variables }>()
 
@@ -21,7 +22,7 @@ auditLogRoutes.get('/', async (c) => {
              FROM audit_log al
              LEFT JOIN user u ON u.id = al.user_id
              WHERE 1=1`
-  const args: unknown[] = []
+  const args: InValue[] = []
 
   if (campaignCode) { sql += ' AND al.campaign_code = ?'; args.push(campaignCode) }
   if (userId) { sql += ' AND al.user_id = ?'; args.push(userId) }
@@ -34,7 +35,7 @@ auditLogRoutes.get('/', async (c) => {
 
   // Get total count
   let countSql = 'SELECT COUNT(*) as total FROM audit_log WHERE 1=1'
-  const countArgs: unknown[] = []
+  const countArgs: InValue[] = []
   if (campaignCode) { countSql += ' AND campaign_code = ?'; countArgs.push(campaignCode) }
   if (userId) { countSql += ' AND user_id = ?'; countArgs.push(userId) }
   if (action) { countSql += ' AND action = ?'; countArgs.push(action) }

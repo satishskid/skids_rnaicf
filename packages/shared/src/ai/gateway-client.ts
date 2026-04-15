@@ -24,9 +24,14 @@ export interface AIGatewayConfig {
   keys: Partial<Record<Provider, string>>
   /** Default failover order if caller does not override. */
   failover: Provider[]
-  /** Optional AI binding for workers-ai fallback. */
+  /**
+   * Optional AI binding for workers-ai fallback.
+   * Structurally compatible with the Cloudflare Ai<AiModels> binding —
+   * we just need .run(model, input) => Promise<unknown>. A wider input
+   * type here would fail to accept the narrower CF signature.
+   */
   aiBinding?: {
-    run: (model: string, input: unknown) => Promise<unknown>
+    run: (model: string, input: Record<string, unknown>) => Promise<unknown>
   }
   /** Injected fetch, defaults to globalThis.fetch. Used by tests. */
   fetchImpl?: typeof fetch

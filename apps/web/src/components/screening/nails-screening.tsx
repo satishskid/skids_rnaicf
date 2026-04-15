@@ -160,3 +160,5 @@ export function NailsScreening({
     </div>
   )
 }
+
+export default NailsScreening

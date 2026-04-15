@@ -1,6 +1,7 @@
 // Training data routes — doctor feedback for AI model training
 import { Hono } from 'hono'
 import type { Bindings, Variables } from '../index'
+import type { InValue } from '@libsql/client'
 
 export const trainingRoutes = new Hono<{ Bindings: Bindings; Variables: Variables }>()
 
@@ -77,7 +78,7 @@ trainingRoutes.get('/training/export', async (c) => {
              FROM training_samples ts
              JOIN observations o ON ts.observation_id = o.id
              WHERE 1=1`
-  const args: unknown[] = []
+  const args: InValue[] = []
 
   if (campaignCodes && campaignCodes.length > 0) {
     sql += ` AND ts.campaign_code IN (${campaignCodes.map(() => '?').join(',')})`
@@ -176,7 +177,7 @@ trainingRoutes.get('/training/stats', async (c) => {
                     SUM(CASE WHEN json_extract(o.clinician_review, '$.status') = 'corrected' THEN 1 ELSE 0 END) as corrected
              FROM observations o
              WHERE o.clinician_review IS NOT NULL`
-  const args: unknown[] = []
+  const args: InValue[] = []
 
   if (campaignCode) {
     sql += ' AND o.campaign_code = ?'

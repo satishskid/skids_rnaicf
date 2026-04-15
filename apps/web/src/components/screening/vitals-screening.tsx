@@ -305,3 +305,5 @@ export function VitalsScreening({
     </Card>
   )
 }
+
+export default VitalsScreening

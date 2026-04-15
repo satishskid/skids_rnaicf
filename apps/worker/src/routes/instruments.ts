@@ -5,6 +5,7 @@
 
 import { Hono } from 'hono'
 import type { Bindings, Variables } from '../index'
+import type { InValue } from '@libsql/client'
 
 const app = new Hono<{ Bindings: Bindings; Variables: Variables }>()
 
@@ -18,7 +19,7 @@ app.get('/', async (c) => {
   const status = c.req.query('status') || 'active'
 
   let sql = 'SELECT id, org_code, name, description, category, version, status, created_at, updated_at FROM instruments WHERE 1=1'
-  const args: unknown[] = []
+  const args: InValue[] = []
 
   if (orgCode) { sql += ' AND org_code = ?'; args.push(orgCode) }
   if (category) { sql += ' AND category = ?'; args.push(category) }
@@ -104,7 +105,7 @@ app.put('/:id', async (c) => {
   }>()
 
   const fields: string[] = []
-  const args: unknown[] = []
+  const args: InValue[] = []
 
   if (body.name !== undefined) { fields.push('name = ?'); args.push(body.name) }
   if (body.description !== undefined) { fields.push('description = ?'); args.push(body.description) }
@@ -184,7 +185,7 @@ app.get('/responses', async (c) => {
   const campaignCode = c.req.query('campaignCode')
 
   let sql = 'SELECT * FROM instrument_responses WHERE 1=1'
-  const args: unknown[] = []
+  const args: InValue[] = []
 
   if (instrumentId) { sql += ' AND instrument_id = ?'; args.push(instrumentId) }
   if (childId) { sql += ' AND child_id = ?'; args.push(childId) }

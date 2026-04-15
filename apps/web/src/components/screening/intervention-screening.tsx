@@ -295,3 +295,5 @@ export function InterventionScreening({
     </Card>
   )
 }
+
+export default InterventionScreening

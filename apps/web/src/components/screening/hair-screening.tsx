@@ -180,3 +180,5 @@ export function HairScreening({
     </div>
   )
 }
+
+export default HairScreening

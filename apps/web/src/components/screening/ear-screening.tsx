@@ -407,3 +407,5 @@ function EarAnalysisDisplay({ capture, entRunning }: { capture: EarCapture; entR
     </div>
   )
 }
+
+export default EarScreening
