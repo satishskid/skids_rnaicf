@@ -1,6 +1,7 @@
 // Doctor review routes
 import { Hono } from 'hono'
 import type { Bindings, Variables } from '../index'
+import type { InValue } from '@libsql/client'
 
 export const reviewRoutes = new Hono<{ Bindings: Bindings; Variables: Variables }>()
 
@@ -11,7 +12,7 @@ reviewRoutes.get('/', async (c) => {
   const observationId = c.req.query('observation')
 
   let sql = 'SELECT * FROM reviews WHERE 1=1'
-  const args: unknown[] = []
+  const args: InValue[] = []
 
   if (campaignCode) {
     sql += ' AND campaign_code = ?'

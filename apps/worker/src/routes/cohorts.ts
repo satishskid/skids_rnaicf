@@ -5,6 +5,7 @@
 
 import { Hono } from 'hono'
 import type { Bindings, Variables } from '../index'
+import type { InValue } from '@libsql/client'
 
 const app = new Hono<{ Bindings: Bindings; Variables: Variables }>()
 
@@ -16,7 +17,7 @@ app.get('/', async (c) => {
   const orgCode = c.req.query('orgCode')
 
   let sql = 'SELECT * FROM cohort_definitions WHERE 1=1'
-  const args: unknown[] = []
+  const args: InValue[] = []
   if (orgCode) { sql += ' AND org_code = ?'; args.push(orgCode) }
   sql += ' ORDER BY updated_at DESC'
 
@@ -63,7 +64,7 @@ app.put('/:id', async (c) => {
   }>()
 
   const fields: string[] = []
-  const args: unknown[] = []
+  const args: InValue[] = []
 
   if (body.name !== undefined) { fields.push('name = ?'); args.push(body.name) }
   if (body.description !== undefined) { fields.push('description = ?'); args.push(body.description) }
@@ -258,7 +259,7 @@ app.get('/population-health/dashboard', async (c) => {
 
   // Total children and screening coverage
   let childSql = 'SELECT COUNT(*) as total FROM children WHERE 1=1'
-  const childArgs: unknown[] = []
+  const childArgs: InValue[] = []
   if (orgCode) {
     childSql += ' AND campaign_code IN (SELECT code FROM campaigns WHERE org_code = ?)'
     childArgs.push(orgCode)
@@ -362,9 +363,9 @@ interface CohortFilter {
   cities?: string[]
 }
 
-function buildCohortQuery(filter: CohortFilter): { sql: string; args: unknown[] } {
+function buildCohortQuery(filter: CohortFilter): { sql: string; args: InValue[] } {
   let sql = 'SELECT c.* FROM children c WHERE 1=1'
-  const args: unknown[] = []
+  const args: InValue[] = []
 
   if (filter.campaignCodes?.length) {
     const ph = filter.campaignCodes.map(() => '?').join(',')

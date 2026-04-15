@@ -1,6 +1,7 @@
 // Children CRUD routes
 import { Hono } from 'hono'
 import type { Bindings, Variables } from '../index'
+import type { InValue } from '@libsql/client'
 
 export const childrenRoutes = new Hono<{ Bindings: Bindings; Variables: Variables }>()
 
@@ -38,8 +39,8 @@ childrenRoutes.get('/search', async (c) => {
        WHERE c.name LIKE ? OR c.admission_number LIKE ? OR c.qr_code LIKE ?
        ORDER BY c.name LIMIT 50`
 
-  const baseArgs = userRole === 'authority'
-    ? [userId, `%${q}%`, `%${q}%`, `%${q}%`]
+  const baseArgs: InValue[] = userRole === 'authority'
+    ? [userId ?? null, `%${q}%`, `%${q}%`, `%${q}%`]
     : [`%${q}%`, `%${q}%`, `%${q}%`]
 
   const result = await db.execute({ sql: baseSql, args: baseArgs })
@@ -78,7 +79,7 @@ childrenRoutes.get('/', async (c) => {
     try {
       const assignment = await db.execute({
         sql: 'SELECT id FROM campaign_assignments WHERE user_id = ? AND campaign_code = ?',
-        args: [userId, campaignCode],
+        args: [userId ?? null, campaignCode],
       })
       if (assignment.rows.length === 0) {
         return c.json({ error: 'Not authorized for this campaign' }, 403)
@@ -89,7 +90,7 @@ childrenRoutes.get('/', async (c) => {
   }
 
   let sql = 'SELECT * FROM children WHERE campaign_code = ?'
-  const args: unknown[] = [campaignCode]
+  const args: InValue[] = [campaignCode]
 
   if (search && search.length >= 2) {
     sql += ' AND (name LIKE ? OR admission_number LIKE ?)'
@@ -207,12 +208,12 @@ childrenRoutes.patch('/:id', async (c) => {
 
   // Build dynamic SET clause
   const fields: string[] = []
-  const args: unknown[] = []
+  const args: InValue[] = []
 
   for (const [key, value] of Object.entries(body)) {
     const col = key.replace(/[A-Z]/g, m => `_${m.toLowerCase()}`)
     fields.push(`${col} = ?`)
-    args.push(value)
+    args.push(value as InValue)
   }
 
   fields.push('updated_at = datetime(\'now\')')

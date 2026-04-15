@@ -5,6 +5,7 @@
 
 import { Hono } from 'hono'
 import type { Bindings, Variables } from '../index'
+import type { InValue } from '@libsql/client'
 
 const app = new Hono<{ Bindings: Bindings; Variables: Variables }>()
 
@@ -17,7 +18,7 @@ app.get('/templates', async (c) => {
   const status = c.req.query('status')
 
   let sql = 'SELECT * FROM consent_templates WHERE 1=1'
-  const args: unknown[] = []
+  const args: InValue[] = []
 
   if (orgCode) {
     sql += ' AND org_code = ?'
@@ -101,7 +102,7 @@ app.put('/templates/:id', async (c) => {
   }>()
 
   const fields: string[] = []
-  const args: unknown[] = []
+  const args: InValue[] = []
 
   if (body.title !== undefined) { fields.push('title = ?'); args.push(body.title) }
   if (body.version !== undefined) { fields.push('version = ?'); args.push(body.version) }
@@ -182,7 +183,7 @@ app.get('/', async (c) => {
   const templateId = c.req.query('templateId')
 
   let sql = 'SELECT * FROM consents WHERE 1=1'
-  const args: unknown[] = []
+  const args: InValue[] = []
 
   if (childId) { sql += ' AND child_id = ?'; args.push(childId) }
   if (campaignCode) { sql += ' AND campaign_code = ?'; args.push(campaignCode) }
