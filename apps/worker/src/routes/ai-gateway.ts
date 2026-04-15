@@ -92,7 +92,10 @@ function buildGateway(c: { env: Bindings }, overflow: Provider[]): AIGateway {
     gatewayId: c.env.AI_GATEWAY_ID,
     keys,
     failover,
-    aiBinding: c.env.AI,
+    // CF's Ai<AiModels> uses a heavily-generic overload chain that doesn't
+    // structurally match our simplified {run(model, input)} interface. Its
+    // runtime shape does — narrow via unknown.
+    aiBinding: c.env.AI as unknown as { run: (model: string, input: Record<string, unknown>) => Promise<unknown> },
   })
 }
 

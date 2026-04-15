@@ -6,6 +6,7 @@
 
 import { Hono } from 'hono'
 import type { Bindings, Variables } from '../index'
+import type { InValue } from '@libsql/client'
 import {
   computePrevalenceReport,
   exportConditionsToCSV,
@@ -128,7 +129,7 @@ app.get('/full', async (c) => {
       completionRate: 0,
       referralRate: 0,
       highRiskCount: 0,
-      topConditions: report.conditions.slice(0, 5).map(c => c.name),
+      topConditions: report.conditions.slice(0, 5).map(c => ({ name: c.name, prevalence: c.count })),
       overallNormalRate: 0,
     },
   })
@@ -232,8 +233,11 @@ app.get('/fhir/study/:id', async (c) => {
     observations = (obsRes.rows ?? []).map((r: any) => ({
       id: r.id, childId: r.child_id, moduleType: r.module_type, campaignCode: r.campaign_code,
       annotationData: r.annotation_data ? JSON.parse(r.annotation_data) : undefined,
-      aiAnnotations: r.ai_annotations ? JSON.parse(r.ai_annotations) : undefined,
+      aiAnnotations: r.ai_annotations ? JSON.parse(r.ai_annotations) : [],
       mediaUrl: r.media_url, createdAt: r.created_at,
+      sessionId: r.session_id ?? r.id,
+      captureMetadata: {},
+      timestamp: r.timestamp ?? r.created_at,
     }))
   }
 
@@ -242,7 +246,7 @@ app.get('/fhir/study/:id', async (c) => {
   const resources: any[] = [studyResource]
   for (const child of children) resources.push(childToFhirPatient(child))
   for (const obs of observations) {
-    const child = childMap.get(obs.childId)
+    const child = obs.childId ? childMap.get(obs.childId) : undefined
     resources.push(observationToFhirObservation(obs, child?.name))
   }
 
@@ -308,7 +312,7 @@ app.get('/cohort/:id/csv', async (c) => {
 
   // Build SQL from filter (same logic as cohorts.ts)
   let sql = 'SELECT c.* FROM children c WHERE 1=1'
-  const args: unknown[] = []
+  const args: InValue[] = []
 
   if (filter.campaignCodes?.length) {
     const ph = filter.campaignCodes.map(() => '?').join(',')
