@@ -178,7 +178,6 @@ export function ReadinessCheck({ onReady, onSkip, orgConfig, role = 'nurse' }: R
         updateItem('cloud-ai', { status: 'warning', detail: 'Check failed' })
       }
     }
-  }
 
     // Report readiness to server (non-blocking)
     try {
