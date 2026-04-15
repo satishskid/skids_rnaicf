@@ -2,7 +2,13 @@
   "extends": "../../tsconfig.base.json",
   "compilerOptions": {
     "outDir": "./dist",
-    "rootDir": "./src"
+    // No rootDir: api-client imports AppType from @skids/worker, which pulls
+    // in the worker's source transitively; those files live under apps/worker.
+    "composite": false,
+    // Match the worker's lib + types so transitive typecheck of pulled-in
+    // worker source sees the same environment the worker itself sees.
+    "lib": ["ES2022"],
+    "types": ["@cloudflare/workers-types"]
   },
   "include": ["src/**/*"]
 }
