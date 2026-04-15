@@ -117,6 +117,9 @@ CREATE TABLE IF NOT EXISTS sync_state (
 CREATE INDEX IF NOT EXISTS idx_sync_status ON sync_state(status);
 
 -- AI usage tracking
+-- Base columns created in schema.sql; Phase 2 migration 0002 adds
+-- cached, gateway_request_id, langfuse_trace_id, cost_usd_micros,
+-- module_type, provider, user_id, session_id.
 CREATE TABLE IF NOT EXISTS ai_usage (
   id TEXT PRIMARY KEY,
   campaign_code TEXT NOT NULL,
@@ -126,9 +129,21 @@ CREATE TABLE IF NOT EXISTS ai_usage (
   output_tokens INTEGER DEFAULT 0,
   latency_ms INTEGER,
   cost_usd REAL DEFAULT 0,
-  created_at TEXT DEFAULT (datetime('now'))
+  created_at TEXT DEFAULT (datetime('now')),
+  -- Phase 2 additions (also applied via 0002_ai_usage_extension.sql for existing DBs)
+  cached INTEGER DEFAULT 0,
+  gateway_request_id TEXT,
+  langfuse_trace_id TEXT,
+  cost_usd_micros INTEGER,
+  module_type TEXT,
+  provider TEXT,
+  user_id TEXT,
+  session_id TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_ai_campaign ON ai_usage(campaign_code);
+CREATE INDEX IF NOT EXISTS idx_ai_usage_created_at ON ai_usage(created_at);
+CREATE INDEX IF NOT EXISTS idx_ai_usage_module ON ai_usage(module_type);
+CREATE INDEX IF NOT EXISTS idx_ai_usage_provider ON ai_usage(provider);
 
 -- Child absences (attendance tracking)
 CREATE TABLE IF NOT EXISTS absences (
