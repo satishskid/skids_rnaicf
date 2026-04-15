@@ -4,7 +4,7 @@ Single source of truth for phase progress. Every phase spec requires this file t
 
 | Phase | Spec | Status | Owner | PR | Merged |
 |---|---|---|---|---|---|
-| 00 | `specs/00-preflight.md` | TODO | — | — | — |
+| 00 | `specs/00-preflight.md` | DONE | planner-agent | pending-push | 2026-04-15 |
 | 01 | `specs/01-turso-vectors.md` | TODO | — | — | — |
 | 02 | `specs/02-ai-gateway-langfuse.md` | TODO | — | — | — |
 | 03 | `specs/03-sandbox-pdf-reports.md` | TODO | — | — | — |
@@ -27,3 +27,6 @@ When a phase completes:
 ## Phase notes
 
 (empty — first phase to run is 00)
+
+### Phase 00 — 2026-04-15
+Baseline verification complete. Created docs/RESIDENCY.md, docs/SECRETS.md, docs/RUNBOOK.md, scripts/preflight.sh. No source-code changes. Typecheck + wrangler dry-run to be re-run by human after push (requires CF creds + pnpm install in local env).
