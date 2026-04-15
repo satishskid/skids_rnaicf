@@ -257,3 +257,64 @@ Rebase plan: whoever lands first wins. If Phase 02a lands first, Phase 03 rebase
 - **No RTL / Arabic / Hebrew** (no market demand).
 - **No per-campaign template override files.** Variants flow through the input JSON.
 - **No pre-rendering of reports on screening completion.** Lazy on first token request. (Pre-render-on-completion is an optimization that arrives with Phase 05 workflows.)
+
+---
+
+## Addendum — 2026-04-15 pivot: option (C) JS-only renderer
+
+**Decision:** Flip §1's fallback (satori + resvg-wasm + pdf-lib) to the default for v1. Drop WeasyPrint / Sandbox / Containers.
+
+**Reason the original choice didn't survive first contact:** the baseline spec's `[[sandbox]]` binding name is not a GA wrangler binding. The behavior described (`SANDBOX.start({ image })` + `sb.exec({ cmd: ['python', ...] })`) maps most closely to Cloudflare Workers **Containers** (`[[containers]]` with a Durable-Object class), which would require image registry, a DO class, and heavier deploy plumbing. The two alternatives — Python Workers (Pyodide, cannot load Cairo/Pango for WeasyPrint) and an external Python microservice (new infra outside the Cloudflare APAC perimeter) — each break a load-bearing constraint (feature parity or PHI residency).
+
+**What option (C) buys us:**
+
+- **PHI stays inside the Cloudflare APAC perimeter.** No egress to a sidecar renderer.
+- **Same edge runtime as the rest of the worker.** No DO class, no image build, no container orchestration.
+- **Single dependency set**: `satori`, `@resvg/resvg-wasm`, `pdf-lib`. All Worker-compatible.
+- **Sufficient for v1 parent reports** (2–4 pages, mostly text + inline SVG charts we already pre-render in `packages/shared/src/report-content.ts`).
+
+**What it costs:**
+
+- **No paged-CSS.** satori emits one SVG per "page"; we stitch pages via pdf-lib. Hand-coded page breaks in the template, not CSS `@page`.
+- **Font coverage is on us.** WeasyPrint-in-container would have pulled `fonts-noto*` via apt; here we bundle subsetted `.ttf` / `.woff2` in the Worker asset bundle. Budget **< 2 MB compressed** across all locales in scope.
+- **PDF/UA tagging is weaker.** pdf-lib emits unstructured PDFs. Acceptable for v1 (accessibility was already flagged out-of-scope).
+
+**Upgrade path preserved.** The binding we commit to is the HTTP contract `POST /api/reports/render` + `GET /api/reports/:id/pdf`. If paged-CSS fidelity becomes load-bearing (doctor-facing clinical PDFs, lab-result-style tables), we can swap the renderer behind that contract to option (A) Workers Containers or option (B) APAC-hosted microservice without touching callers.
+
+### Revised commit plan
+
+| # | Scope |
+|---|---|
+| 2 (amended) | `wrangler.toml` — `[[r2_buckets]]` for `skids-reports` + `REPORT_SIGNING_KEY` secret ref. **No `[[sandbox]]` block.** |
+| 3 | `packages/pdf-templates/` — satori JSX components + resvg-wasm wrapper + pdf-lib multi-page stitcher + subsetted font bundle |
+| 4 | `apps/worker/src/routes/report-render.ts` + `apps/worker/src/routes/report-tokens.ts` rewrite (hashed-token CRUD + `/api/reports/:id/pdf` serve path with audit IP + UA) |
+| 5 | `packages/shared/src/report-token.ts` — HMAC issue/verify lib (URL token integrity layer) |
+| 6 | Cron worker gated by `FEATURE_REPORT_PREWARM` — pre-warms the resvg-wasm module + font cache (not a Python sandbox) |
+
+### Font bundle — scripts in scope
+
+Subset aggressively (glyphs actually used in templates + ASCII + digits + common punctuation). Target total **< 2 MB compressed**.
+
+| Locale(s) | Font family | Script |
+|---|---|---|
+| en | Inter | Latin |
+| hi, mr | Noto Sans Devanagari | Devanagari |
+| bn | Noto Sans Bengali | Bengali |
+| ta | Noto Sans Tamil | Tamil |
+| te | Noto Sans Telugu | Telugu |
+| kn | Noto Sans Kannada | Kannada |
+| ml | Noto Sans Malayalam | Malayalam |
+| gu | Noto Sans Gujarati | Gujarati |
+| pa | Noto Sans Gurmukhi | Gurmukhi |
+
+Drop CJK (no market), drop RTL (no market). Tamil / Bengali / Gujarati / Gurmukhi are added vs the pre-pivot list; confirm with product before template commit 3.
+
+### What this addendum supersedes
+
+- §1 "Recommendation: WeasyPrint inside Cloudflare Sandbox." → superseded. Satori + resvg-wasm + pdf-lib is the v1 default.
+- §2 Jinja2 templates in `apps/worker/sandbox/templates/` → superseded. Templates move to `packages/pdf-templates/` as TSX.
+- §7 "Sandbox process isolation" → no longer applicable. Replaced by "all rendering inside the Worker request; no disk writes; PDF bytes returned to caller or streamed to R2."
+- Deliverables list (WeasyPrint Dockerfile, `render.py`, Jinja templates) → removed. `apps/worker/sandbox/` directory will not be created.
+- `SANDBOX_SIGNING_KEY` → renamed to `REPORT_SIGNING_KEY` everywhere (it was never bound to Sandbox specifically; it's the URL HMAC key).
+
+All other sections (cache model, R2 layout, access control, audit, migration 0003, token-hash storage, rate limit, pre-warm cron) carry over unchanged.

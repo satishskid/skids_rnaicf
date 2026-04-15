@@ -39,3 +39,14 @@ binding = "AI"
 binding = "R2_MODELS_BUCKET"
 bucket_name = "skids-models"
 
+# Phase 03 — JS-only PDF report renderer (satori + @resvg/resvg-wasm + pdf-lib).
+# No [[sandbox]] / [[containers]] / WeasyPrint: rendering happens inside the Worker
+# request so PHI never leaves the Cloudflare APAC perimeter. See
+# specs/decisions/2026-04-15-phase-03-sandbox-pdfs-plan.md (addendum).
+[[r2_buckets]]
+binding = "R2_REPORTS_BUCKET"
+bucket_name = "skids-reports"
+
+# REPORT_SIGNING_KEY — HMAC key for report token integrity (issue + verify).
+# Set via:
+#   wrangler secret put REPORT_SIGNING_KEY
