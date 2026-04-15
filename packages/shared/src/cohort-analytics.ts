@@ -26,6 +26,9 @@ export interface CohortAnalytics {
   moduleCompletion: Array<{
     moduleType: string
     moduleName: string
+    /** Distinct children screened on this module. SQL `COUNT(DISTINCT child_id) AS total`. */
+    total: number
+    /** @deprecated alias of total — aggregator still writes this. */
     count: number
     percentage: number
   }>
@@ -149,6 +152,7 @@ export function computeCohortAnalytics(
     return {
       moduleType: mt,
       moduleName: config?.name || mt,
+      total: count,
       count,
       percentage: children.length > 0 ? Math.round((count / children.length) * 100) : 0,
     }
