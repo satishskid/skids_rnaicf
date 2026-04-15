@@ -18,3 +18,6 @@ export * from './accuracy-metrics'
 // Phase 2 — AI Gateway client + Langfuse tracing (no SDKs, Worker-safe)
 export * from './gateway-client'
 export * from './langfuse-trace'
+
+// Phase 02a-web — Zod function-call schemas for on-device Liquid AI module suggestions
+export * from './module-schemas'
