@@ -24,3 +24,6 @@ export * from './module-schemas'
 
 // Phase 02a-web — pinned on-device model manifest (shared by liquid-ai client + worker route)
 export * from './model-manifest'
+
+// Phase 02a-web — HITL outcome audit input schema (shared by web client + worker route)
+export * from './hitl-outcome-input'

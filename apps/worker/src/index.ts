@@ -35,6 +35,7 @@ import { auditLogRoutes } from './routes/audit-log'
 import { similarityRoutes } from './routes/similarity'
 import { adminEmbeddingsRoutes } from './routes/admin-embeddings'
 import { modelsRoutes } from './routes/models'
+import { onDeviceAiRoutes } from './routes/on-device-ai'
 import { createTursoClient } from '@skids/db'
 import { createAuth } from './auth'
 import { authMiddleware, requireRole } from './middleware/auth'
@@ -292,6 +293,12 @@ app.route('/api/audit-log', auditLogRoutes)
 app.use('/api/models', authMiddleware)
 app.use('/api/models/*', authMiddleware)
 app.route('/api/models', modelsRoutes)
+
+// Phase 02a — on-device AI HITL outcome audit (any authenticated clinical role;
+// role/outcome matrix enforced inside the route).
+app.use('/api/on-device-ai', authMiddleware)
+app.use('/api/on-device-ai/*', authMiddleware)
+app.route('/api/on-device-ai', onDeviceAiRoutes)
 
 // Root
 app.get('/', (c) => {
