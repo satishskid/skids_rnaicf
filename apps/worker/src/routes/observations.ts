@@ -2,6 +2,8 @@
 import { Hono } from 'hono'
 import type { Bindings, Variables } from '../index'
 
+import { embedAndStoreBackground } from '../lib/embeddings'
+
 export const observationRoutes = new Hono<{ Bindings: Bindings; Variables: Variables }>()
 
 // List observations for a campaign
@@ -102,6 +104,25 @@ observationRoutes.post('/', async (c) => {
     ],
   })
 
+  // Phase 1 — fire-and-forget embedding (never blocks the nurse)
+  try {
+    const ai = c.env.AI
+    if (ai && isFeatureEnabled(c, 'turso_vectors')) {
+      const exec = (c.executionCtx as unknown as { waitUntil?: (p: Promise<unknown>) => void } | undefined)
+      const task = embedAndStoreBackground(db, ai, {
+        id,
+        module_type: body.moduleType,
+        body_region: body.bodyRegion || null,
+        ai_annotations: body.aiAnnotations ? JSON.stringify(body.aiAnnotations) : null,
+        annotation_data: body.annotationData ? JSON.stringify(body.annotationData) : null,
+        risk_level: body.riskLevel || 0,
+      })
+      if (exec?.waitUntil) exec.waitUntil(task); else void task
+    }
+  } catch (err) {
+    console.warn('[observations.post] embed kickoff failed', err)
+  }
+
   return c.json({ id, message: 'Observation saved' }, 201)
 })
 
@@ -149,6 +170,24 @@ observationRoutes.post('/sync', async (c) => {
           obs.timestamp || new Date().toISOString(),
         ],
       })
+      // Phase 1 — fire-and-forget embedding
+      try {
+        const ai = c.env.AI
+        if (ai && isFeatureEnabled(c, 'turso_vectors')) {
+          const exec = (c.executionCtx as unknown as { waitUntil?: (p: Promise<unknown>) => void } | undefined)
+          const task = embedAndStoreBackground(db, ai, {
+            id: obs.id,
+            module_type: obs.moduleType,
+            body_region: obs.bodyRegion || null,
+            ai_annotations: obs.aiAnnotations ? JSON.stringify(obs.aiAnnotations) : null,
+            annotation_data: obs.annotationData ? JSON.stringify(obs.annotationData) : null,
+            risk_level: obs.riskLevel || 0,
+          })
+          if (exec?.waitUntil) exec.waitUntil(task); else void task
+        }
+      } catch {
+        /* embed failure does not fail sync */
+      }
       synced++
     } catch (e) {
       errors.push(`${obs.id}: ${e instanceof Error ? e.message : 'unknown'}`)
@@ -363,3 +402,14 @@ observationRoutes.get('/accuracy/:moduleType', async (c) => {
     confusion: { tp, fp, fn, tn },
   })
 })
+
+/**
+ * Phase 1 feature flag stub — checks c.env for an override.
+ * Phase 2 will replace this with an ai_config.features_json read.
+ */
+function isFeatureEnabled(c: { env: Record<string, unknown> }, flag: string): boolean {
+  const envKey = `FEATURE_${flag.toUpperCase()}`
+  const v = c.env[envKey]
+  if (v === 'false' || v === '0') return false
+  return true
+}
