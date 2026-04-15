@@ -53,10 +53,12 @@ app.get('/:code', async (c) => {
     const reviews: Record<string, ClinicianReview> = {}
     for (const r of (reviewRows.rows ?? []) as any[]) {
       reviews[r.observation_id] = {
+        id: r.id,
+        clinicianId: r.clinician_id,
+        clinicianName: r.clinician_name ?? '',
+        timestamp: r.reviewed_at,
+        notes: r.notes ?? '',
         decision: r.decision,
-        notes: r.notes,
-        reviewedBy: r.clinician_id,
-        reviewedAt: r.reviewed_at,
       }
     }
 
