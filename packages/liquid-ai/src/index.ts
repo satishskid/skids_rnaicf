@@ -3,3 +3,4 @@
 // See specs/decisions/2026-04-15-phase-02a-web-liquid-ai-plan.md.
 
 export * from './types'
+export * from './manifest'
