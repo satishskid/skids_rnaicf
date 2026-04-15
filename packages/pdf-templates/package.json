@@ -1,0 +1,26 @@
+{
+  "name": "@skids/pdf-templates",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "scripts": {
+    "build": "tsc --build",
+    "typecheck": "tsc --noEmit",
+    "test": "tsx --test tests/**/*.test.ts"
+  },
+  "dependencies": {
+    "@resvg/resvg-wasm": "^2.6.2",
+    "@skids/shared": "workspace:*",
+    "pdf-lib": "^1.17.1",
+    "react": "^18.3.1",
+    "satori": "^0.12.1"
+  },
+  "devDependencies": {
+    "@types/node": "^20.14.0",
+    "@types/react": "^18.3.12",
+    "tsx": "^4.19.0",
+    "typescript": "^5.8.0"
+  }
+}

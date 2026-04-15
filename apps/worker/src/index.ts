@@ -21,6 +21,10 @@ import { exportRoutes } from './routes/export'
 import { campaignProgressRoutes } from './routes/campaign-progress'
 import { screeningEventsRoutes } from './routes/screening-events'
 import { reportTokenRoutes } from './routes/report-tokens'
+// Phase 03 — PDF report issuance + consumer + cron pre-warm
+import { reportRenderRoutes } from './routes/report-render'
+import { reportConsumeRoutes } from './routes/report-consume'
+import { scheduledHandler } from './scheduled'
 import { pinAuthRoutes } from './routes/pin-auth'
 import { educationRoutes } from './routes/education'
 import { accountRoutes } from './routes/account'
@@ -76,6 +80,11 @@ export type Bindings = {
   FEATURE_AI_GATEWAY?: string
   // Phase 02a — on-device Liquid AI weight shards (R2 bucket `skids-models`)
   R2_MODELS_BUCKET: R2Bucket
+  // Phase 03 — PDF report bucket + URL HMAC signing key (see wrangler.toml)
+  R2_REPORTS_BUCKET: R2Bucket
+  REPORT_SIGNING_KEY: string
+  // Phase 03 — cron pre-warm kill switch ('1' = enabled). Default off.
+  FEATURE_REPORT_PREWARM?: string
 }
 
 // Variables set per-request
@@ -235,6 +244,13 @@ app.post('/api/report-tokens/bulk-release', authMiddleware)
 app.get('/api/report-tokens/campaign/*', authMiddleware)
 app.route('/api/report-tokens', reportTokenRoutes)
 
+// Phase 03 — PDF report routes.
+// /api/reports/render is admin-gated; /api/reports/:id/pdf is intentionally
+// public (URL HMAC token IS the auth — no authMiddleware on this mount).
+app.use('/api/reports/render', authMiddleware)
+app.route('/api/reports', reportRenderRoutes)
+app.route('/api/reports', reportConsumeRoutes)
+
 // Parent portal — mixed auth:
 // POST /generate-qr requires Better Auth (admin backfill migration)
 // POST /lookup, /verify are public (QR code + DOB verification)
@@ -310,5 +326,10 @@ app.get('/', (c) => {
   })
 })
 
-export default app
+// Default export upgraded to the object form to attach the Phase 03 scheduled
+// handler alongside fetch. Keeps `app.fetch` wiring intact.
+export default {
+  fetch: app.fetch,
+  scheduled: scheduledHandler,
+} satisfies ExportedHandler<Bindings>
 export type AppType = typeof app

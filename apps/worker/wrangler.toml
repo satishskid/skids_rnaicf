@@ -39,3 +39,21 @@ binding = "AI"
 binding = "R2_MODELS_BUCKET"
 bucket_name = "skids-models"
 
+# Phase 03 — JS-only PDF report renderer (satori + @resvg/resvg-wasm + pdf-lib).
+# No [[sandbox]] / [[containers]] / WeasyPrint: rendering happens inside the Worker
+# request so PHI never leaves the Cloudflare APAC perimeter. See
+# specs/decisions/2026-04-15-phase-03-sandbox-pdfs-plan.md (addendum).
+[[r2_buckets]]
+binding = "R2_REPORTS_BUCKET"
+bucket_name = "skids-reports"
+
+# REPORT_SIGNING_KEY — HMAC key for report token integrity (issue + verify).
+# Set via:
+#   wrangler secret put REPORT_SIGNING_KEY
+
+# Cron pre-warm for the satori + resvg-wasm + pdf-lib pipeline. Fires every
+# 10 min during 03:00–12:00 UTC (08:30–17:30 IST), the parent-facing window.
+# The scheduled handler short-circuits unless FEATURE_REPORT_PREWARM=1, so this
+# trigger is safe to leave on in all environments — flip the env var to enable.
+[triggers]
+crons = ["*/10 3-12 * * *"]
