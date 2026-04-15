@@ -112,7 +112,7 @@ export function observationToFhirObservation(obs: Observation, childName?: strin
     interpretationDisplay = 'Critically high'
   }
 
-  const chips = obs.annotationData?.chips as string[] | undefined
+  const chips = obs.annotationData?.selectedChips
 
   return {
     resourceType: 'Observation',
@@ -261,7 +261,7 @@ export function buildCampaignFhirBundle(
 
   // Add observations
   for (const obs of observations) {
-    const child = childMap.get(obs.childId)
+    const child = obs.childId ? childMap.get(obs.childId) : undefined
     resources.push(observationToFhirObservation(obs, child?.name))
   }
 

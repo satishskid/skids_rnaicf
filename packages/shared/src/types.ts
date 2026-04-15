@@ -39,6 +39,9 @@ export type ExamContext = 'home' | 'school' | 'clinic';
 export type ExamStatus = 'pending' | 'in_progress' | 'completed' | 'reviewed';
 export type Severity = 'normal' | 'mild' | 'moderate' | 'severe';
 
+// Canonical child screening status union.
+// Union of historical members from both types.ts and campaign-progress.ts
+// (campaign-progress.ts re-exports this type instead of redeclaring it).
 export type ChildScreeningStatus =
   | 'to_screen'
   | 'absent'
@@ -47,7 +50,8 @@ export type ChildScreeningStatus =
   | 'synced'
   | 'under_review'
   | 'complete'
-  | 'retake';
+  | 'retake'
+  | 'referred';
 
 export interface AbsentRecord {
   date: string;
@@ -167,6 +171,12 @@ export interface Observation {
   annotationData?: AnnotationData;
   clinicianReview?: ClinicianReview;
   timestamp: string;
+  // DB-row companions. Present when Observation is materialized from Turso
+  // rows (export, FHIR adapter) rather than the mobile in-memory capture.
+  // Optional so the domain-shaped usage stays valid.
+  childId?: string;
+  campaignCode?: string;
+  createdAt?: string;
 }
 
 // Module-specific result types

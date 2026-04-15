@@ -166,6 +166,7 @@ export function getStatusLabel(status: ChildScreeningStatus): string {
     under_review: 'Under Review',
     complete: 'Complete',
     retake: 'Retake Needed',
+    referred: 'Referred',
   }
   return labels[status] || status
 }
@@ -181,6 +182,7 @@ export function getStatusColor(status: ChildScreeningStatus): string {
     under_review: 'bg-purple-100 text-purple-700',
     complete: 'bg-green-100 text-green-700',
     retake: 'bg-red-100 text-red-700',
+    referred: 'bg-orange-100 text-orange-700',
   }
   return colors[status] || 'bg-gray-100 text-gray-700'
 }
