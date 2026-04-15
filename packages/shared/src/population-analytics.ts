@@ -50,9 +50,15 @@ export interface GeoNode {
 
 export interface ConditionAggregate {
   conditionId: string
+  /** Condition display name. */
+  conditionName: string
+  /** @deprecated alias of conditionName — kept for existing aggregator call sites. */
   name: string
   icdCode?: string
   category: string
+  /** Count of children with this condition present. Aligned with SQL `COUNT(*) AS count`. */
+  count: number
+  /** @deprecated alias of count — kept for existing aggregator call sites. */
   totalCount: number
   prevalence: number
   severityBreakdown: { mild: number; moderate: number; severe: number }
@@ -79,6 +85,13 @@ export interface SubCohort {
   completionRate: number
   referralRate: number
   topConditions: ConditionAggregate[]
+  /**
+   * Risk counts per tier. Named to match the same field on CohortAnalytics;
+   * DuckDB GROUP BY variants of the main cohort query emit this shape
+   * directly. Kept as `riskDistribution` alias for the existing aggregator.
+   */
+  riskBreakdown: { noRisk: number; possibleRisk: number; highRisk: number }
+  /** @deprecated alias of riskBreakdown — existing aggregator writes this. */
   riskDistribution: { noRisk: number; possibleRisk: number; highRisk: number }
 }
 
@@ -92,12 +105,16 @@ export interface DemographicBreakdown {
 
 export interface AgeGroupBucket {
   label: string
+  /** Canonical bucket key emitted by SQL age_bucket(): identical to label today. */
+  group: string
   minAge: number
   maxAge: number
   count: number
   screenedCount: number
   findingCount: number
   referralCount: number
+  /** Share of the total cohort in this bucket (0-100). SQL: `count * 100.0 / total`. */
+  percentage: number
 }
 
 export interface GenderBucket {
@@ -106,12 +123,29 @@ export interface GenderBucket {
   screenedCount: number
   findingCount: number
   referralCount: number
+  /**
+   * Risk counts per tier within this gender. DuckDB shape:
+   * `SELECT gender, risk_level, COUNT(*) GROUP BY gender, risk_level`
+   * pivoted to three counters.
+   */
+  riskBreakdown: { noRisk: number; possibleRisk: number; highRisk: number }
 }
 
 export interface CrossTab {
   conditionName: string
   conditionId: string
+  /**
+   * Canonical long-format rows — matches DuckDB GROUP BY output. Keep this
+   * as the source of truth; `male` / `female` / `byAge` below are convenience
+   * pivots populated by the aggregator for UI consumption.
+   */
   buckets: { label: string; count: number; prevalence: number }[]
+  /** Affected-children count for this condition × male. DuckDB PIVOT scalar. */
+  male?: number
+  /** Affected-children count for this condition × female. */
+  female?: number
+  /** Affected-children count for this condition × age bucket. Key = AgeGroupBucket.group. */
+  byAge?: Record<string, number>
 }
 
 // ─── Geographic Aggregation ─────────────────────────────────────
@@ -121,15 +155,51 @@ export interface CrossTab {
  * Groups campaigns by location at each level and aggregates
  * prevalence data for drill-down reporting.
  */
+/**
+ * Build a synthetic root GeoNode with child regions grouped by `rootLevel`.
+ *
+ * Returning a single root matches DuckDB's `GROUP BY ROLLUP(...)` idiom (one
+ * rollup row at the top of the hierarchy) and gives consumers a stable
+ * .totalChildren / .campaignCodes / .children surface without worrying
+ * about empty-array sentinels.
+ */
 export function buildGeoHierarchy(
   bundles: CampaignDataBundle[],
   rootLevel: LocationLevel = 'country',
-): GeoNode[] {
+): GeoNode {
   const located = bundles.map(b => ({
     ...b,
     location: normaliseCampaignLocation(b.campaign as Record<string, unknown>),
   }))
-  return groupByLevel(located, rootLevel)
+  const children = groupByLevel(located, rootLevel)
+
+  const totalChildren = children.reduce((a, c) => a + c.totalChildren, 0)
+  const screenedChildren = children.reduce((a, c) => a + c.screenedChildren, 0)
+  const campaignCodes = Array.from(new Set(children.flatMap(c => c.campaignCodes)))
+  const riskDistribution = children.reduce(
+    (acc, c) => ({
+      noRisk: acc.noRisk + c.riskDistribution.noRisk,
+      possibleRisk: acc.possibleRisk + c.riskDistribution.possibleRisk,
+      highRisk: acc.highRisk + c.riskDistribution.highRisk,
+    }),
+    { noRisk: 0, possibleRisk: 0, highRisk: 0 },
+  )
+  const referralRate = children.length > 0
+    ? children.reduce((a, c) => a + c.referralRate, 0) / children.length
+    : 0
+
+  return {
+    level: rootLevel,
+    label: 'All regions',
+    campaignCodes,
+    totalChildren,
+    screenedChildren,
+    topConditions: [],
+    categoryBreakdown: [],
+    children,
+    riskDistribution,
+    referralRate,
+  }
 }
 
 function groupByLevel(
@@ -182,15 +252,17 @@ function groupByLevel(
 
     // Condition prevalence via computePrevalenceReport (needs Observation[], convert SyncedObservation)
     const prevalence = safeComputePrevalence(allChildren, allObs, `geo_${label}`)
-    const topConditions = prevalence
+    const topConditions: ConditionAggregate[] = prevalence
       ? prevalence.conditions
           .filter(c => c.count > 0)
           .slice(0, 10)
           .map(c => ({
             conditionId: c.conditionId,
+            conditionName: c.name,
             name: c.name,
             icdCode: c.icdCode,
             category: c.category,
+            count: c.count,
             totalCount: c.count,
             prevalence: c.prevalence,
             severityBreakdown: {
@@ -294,12 +366,14 @@ export function compareSubCohorts(
     }
 
     const prevalence = safeComputePrevalence(group.children, group.obs, `cohort_${label}`)
-    const topConditions = prevalence
+    const topConditions: ConditionAggregate[] = prevalence
       ? prevalence.conditions.filter(c => c.count > 0).slice(0, 10).map(c => ({
           conditionId: c.conditionId,
+          conditionName: c.name,
           name: c.name,
           icdCode: c.icdCode,
           category: c.category,
+          count: c.count,
           totalCount: c.count,
           prevalence: c.prevalence,
           severityBreakdown: {
@@ -317,6 +391,7 @@ export function compareSubCohorts(
       completionRate: group.children.length > 0 ? (screenedIds.size / group.children.length) * 100 : 0,
       referralRate: totalReviews > 0 ? (referrals / totalReviews) * 100 : 0,
       topConditions,
+      riskBreakdown: riskDist,
       riskDistribution: riskDist,
     }
   }).sort((a, b) => b.totalChildren - a.totalChildren)
@@ -377,6 +452,7 @@ export function computeDemographicBreakdown(
     { label: '14-18 years', minAge: 14, maxAge: 18 },
   ]
 
+  const totalChildrenAll = allChildren.length
   const ageGroups: AgeGroupBucket[] = ageBuckets.map(bucket => {
     const kids = allChildren.filter(c => {
       const age = getAge(c.dob)
@@ -392,12 +468,16 @@ export function computeDemographicBreakdown(
 
     return {
       label: bucket.label,
+      group: bucket.label,
       minAge: bucket.minAge,
       maxAge: bucket.maxAge,
       count: kids.length,
       screenedCount: screened,
       findingCount: findingKids,
       referralCount: referredKids,
+      percentage: totalChildrenAll > 0
+        ? Math.round((kids.length / totalChildrenAll) * 1000) / 10
+        : 0,
     }
   })
 
@@ -412,12 +492,20 @@ export function computeDemographicBreakdown(
     const referred = obs.filter(o => allReviews[o.id]?.decision === 'refer')
     const referredKids = new Set(referred.map(o => o.childId)).size
 
+    const riskBreakdown = { noRisk: 0, possibleRisk: 0, highRisk: 0 }
+    for (const o of obs) {
+      if (o.riskCategory === 'no_risk') riskBreakdown.noRisk++
+      else if (o.riskCategory === 'possible_risk') riskBreakdown.possibleRisk++
+      else if (o.riskCategory === 'high_risk') riskBreakdown.highRisk++
+    }
+
     return {
       gender: g,
       count: kids.length,
       screenedCount: screened,
       findingCount: findingKids,
       referralCount: referredKids,
+      riskBreakdown,
     }
   })
 
@@ -425,10 +513,8 @@ export function computeDemographicBreakdown(
   const prevalence = safeComputePrevalence(allChildren, allObs, 'demographics')
   const topConds = prevalence ? prevalence.conditions.filter(c => c.count > 0).slice(0, 10) : []
 
-  const conditionByAge: CrossTab[] = topConds.map(cond => ({
-    conditionName: cond.name,
-    conditionId: cond.conditionId,
-    buckets: ageBuckets.map(bucket => {
+  const conditionByAge: CrossTab[] = topConds.map(cond => {
+    const buckets = ageBuckets.map(bucket => {
       const kids = allChildren.filter(c => {
         const age = getAge(c.dob)
         return age >= bucket.minAge && age <= bucket.maxAge
@@ -445,13 +531,19 @@ export function computeDemographicBreakdown(
         count,
         prevalence: kids.length > 0 ? Math.round((count / kids.length) * 1000) / 10 : 0,
       }
-    }),
-  }))
+    })
+    const byAge: Record<string, number> = {}
+    for (const b of buckets) byAge[b.label] = b.count
+    return {
+      conditionName: cond.name,
+      conditionId: cond.conditionId,
+      buckets,
+      byAge,
+    }
+  })
 
-  const conditionByGender: CrossTab[] = topConds.map(cond => ({
-    conditionName: cond.name,
-    conditionId: cond.conditionId,
-    buckets: (['male', 'female'] as const).map(g => {
+  const conditionByGender: CrossTab[] = topConds.map(cond => {
+    const buckets = (['male', 'female'] as const).map(g => {
       const kids = allChildren.filter(c => c.gender === g)
       const kidIds = new Set(kids.map(c => c.id))
       const obs = allObs.filter(o =>
@@ -465,8 +557,15 @@ export function computeDemographicBreakdown(
         count,
         prevalence: kids.length > 0 ? Math.round((count / kids.length) * 1000) / 10 : 0,
       }
-    }),
-  }))
+    })
+    return {
+      conditionName: cond.name,
+      conditionId: cond.conditionId,
+      buckets,
+      male: buckets[0].count,
+      female: buckets[1].count,
+    }
+  })
 
   return { ageGroups, genderSplit, conditionByAge, conditionByGender }
 }
