@@ -1,6 +1,7 @@
 import { Resvg, initWasm } from '@resvg/resvg-wasm'
 import { PDFDocument } from 'pdf-lib'
 import satori from 'satori'
+import { loadFonts, type SatoriFont } from './fonts/index'
 import { buildParentScreeningReportPages, PARENT_SCREENING_REPORT_PAGE } from './templates/parent-screening-report'
 import type { RenderLocale, TemplateData, TemplateName } from './types'
 
@@ -15,20 +16,21 @@ export async function initResvg(wasm: ArrayBuffer | Response | URL): Promise<voi
 }
 
 export interface RenderContext {
-  fonts: Array<{ name: string; data: ArrayBuffer; weight?: 400 | 700; style?: 'normal' | 'italic' }>
+  fonts?: SatoriFont[]
 }
 
 export async function renderTemplate<T extends TemplateName>(
   templateName: T,
   data: TemplateData<T>,
   locale: RenderLocale,
-  ctx: RenderContext,
+  ctx: RenderContext = {},
 ): Promise<Uint8Array> {
   if (!resvgReady) {
     throw new Error('resvg-wasm not initialised — call initResvg(wasm) once at boot before renderTemplate()')
   }
   await resvgReady
 
+  const fonts = ctx.fonts ?? (await loadFonts(locale))
   const pages = buildPages(templateName, data)
   const pdf = await PDFDocument.create()
 
@@ -36,12 +38,7 @@ export async function renderTemplate<T extends TemplateName>(
     const svg = await satori(page.body, {
       width: page.size.width,
       height: page.size.height,
-      fonts: ctx.fonts.map(f => ({
-        name: f.name,
-        data: f.data,
-        weight: f.weight ?? 400,
-        style: f.style ?? 'normal',
-      })),
+      fonts: fonts.map(f => ({ name: f.name, data: f.data, weight: f.weight, style: f.style })),
     })
     const png = new Resvg(svg).render().asPng()
     const embedded = await pdf.embedPng(png)
@@ -49,7 +46,6 @@ export async function renderTemplate<T extends TemplateName>(
     pdfPage.drawImage(embedded, { x: 0, y: 0, width: page.size.width, height: page.size.height })
   }
 
-  void locale // reserved for future per-locale font selection
   return await pdf.save()
 }
 
@@ -59,15 +55,11 @@ interface BuiltPage {
 }
 
 function buildPages<T extends TemplateName>(templateName: T, data: TemplateData<T>): BuiltPage[] {
-  switch (templateName) {
-    case 'parent-screening-report':
-      return buildParentScreeningReportPages(data as TemplateData<'parent-screening-report'>).map(p => ({
-        body: p.body,
-        size: PARENT_SCREENING_REPORT_PAGE,
-      }))
-    default: {
-      const _exhaustive: never = templateName
-      throw new Error(`Unknown template: ${String(_exhaustive)}`)
-    }
+  if (templateName === 'parent-screening-report') {
+    return buildParentScreeningReportPages(data as TemplateData<'parent-screening-report'>).map(p => ({
+      body: p.body,
+      size: PARENT_SCREENING_REPORT_PAGE,
+    }))
   }
+  throw new Error(`Unknown template: ${String(templateName)}`)
 }
