@@ -2,7 +2,7 @@
 // Used by BOTH mobile app (React Native) and web dashboard (Vite)
 
 import { hc } from 'hono/client'
-import type { AppType } from '../../apps/worker/src/index'
+import type { AppType } from '@skids/worker'
 
 export type { AppType }
 

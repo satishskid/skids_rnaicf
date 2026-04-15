@@ -14,3 +14,7 @@ export * from './annotation-schema'
 
 // AI Accuracy Metrics — sensitivity, specificity, agreement tracking per module
 export * from './accuracy-metrics'
+
+// Phase 2 — AI Gateway client + Langfuse tracing (no SDKs, Worker-safe)
+export * from './gateway-client'
+export * from './langfuse-trace'

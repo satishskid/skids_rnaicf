@@ -17,7 +17,7 @@ export const adminEmbeddingsRoutes = new Hono<{ Bindings: Bindings; Variables: V
 adminEmbeddingsRoutes.post('/embed-batch', async (c) => {
   const db = c.get('db')
   const ai = c.env.AI
-  if (\!ai) return c.json({ error: 'Workers AI binding missing' }, 500)
+  if (!ai) return c.json({ error: 'Workers AI binding missing' }, 500)
 
   const body = (await c.req.json().catch(() => ({}))) as { batchSize?: number }
   const batchSize = Math.min(Math.max(body.batchSize ?? 100, 1), 500)

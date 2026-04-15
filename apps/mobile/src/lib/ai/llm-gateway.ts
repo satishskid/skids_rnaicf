@@ -497,7 +497,11 @@ function getCloudModelId(provider: CloudProvider): string {
   }
 }
 
-async function callCloudGateway(config: LLMConfig, messages: LLMMessage[]): Promise<LLMResponse> {
+async function callCloudGateway(
+  config: LLMConfig,
+  messages: LLMMessage[],
+  ctx: { sessionId?: string; moduleType?: string; campaignCode?: string } = {}
+): Promise<LLMResponse> {
   const startTime = now()
   if (!config.cloudGatewayUrl) {
     return { text: '', provider: config.cloudProvider, model: config.cloudProvider, latencyMs: 0, error: 'Cloud AI not configured.' }
@@ -525,8 +529,10 @@ async function callCloudGateway(config: LLMConfig, messages: LLMMessage[]): Prom
         },
         body: JSON.stringify({
           image: imageBase64,
-          moduleType: moduleName.toLowerCase().replace(/\s+/g, '_'),
+          moduleType: ctx.moduleType ?? moduleName.toLowerCase().replace(/\s+/g, '_'),
           moduleName,
+          sessionId: ctx.sessionId,
+          campaignCode: ctx.campaignCode,
         }),
       })
 
@@ -560,16 +566,30 @@ async function callCloudGateway(config: LLMConfig, messages: LLMMessage[]): Prom
       headers: {
         'Content-Type': 'application/json',
         ...(config.cloudApiKey ? { Authorization: `Bearer ${config.cloudApiKey}` } : {}),
-        'X-Provider': config.cloudProvider,
       },
-      body: JSON.stringify({ model: getCloudModelId(config.cloudProvider), messages: cloudMessages, max_tokens: 1024, temperature: 0.3 }),
+      body: JSON.stringify({
+        messages: cloudMessages,
+        provider: config.cloudProvider,
+        sessionId: ctx.sessionId,
+        moduleType: ctx.moduleType,
+        campaignCode: ctx.campaignCode,
+      }),
     })
 
     if (!res.ok) throw new Error(`Cloud gateway: ${res.status}`)
-    const data = await res.json()
-    const text = data.choices?.[0]?.message?.content || data.content?.[0]?.text || data.candidates?.[0]?.content?.parts?.[0]?.text || data.result ? JSON.stringify(data.result) : ''
-
-    return { text, provider: config.cloudProvider, model: getCloudModelId(config.cloudProvider), tokensUsed: data.usage?.total_tokens, latencyMs: Math.round(now() - startTime) }
+    const data = await res.json() as {
+      text?: string
+      provider?: CloudProvider
+      model?: string
+      tokensUsed?: number
+    }
+    return {
+      text: data.text ?? '',
+      provider: data.provider ?? config.cloudProvider,
+      model: data.model ?? getCloudModelId(config.cloudProvider),
+      tokensUsed: data.tokensUsed,
+      latencyMs: Math.round(now() - startTime),
+    }
   } catch (err) {
     return { text: '', provider: config.cloudProvider, model: getCloudModelId(config.cloudProvider), latencyMs: Math.round(now() - startTime), error: err instanceof Error ? err.message : 'Cloud request failed' }
   }
@@ -577,22 +597,42 @@ async function callCloudGateway(config: LLMConfig, messages: LLMMessage[]): Prom
 
 // ── Unified gateway ──
 
-export async function queryLLM(config: LLMConfig, messages: LLMMessage[]): Promise<LLMResponse[]> {
-  switch (config.mode) {
+export interface QueryLLMOptions {
+  sessionId?: string
+  moduleType?: string
+  campaignCode?: string
+  /**
+   * Caller-asserted role. Phase 02 scope: cloud AI is doctor-only. When
+   * role is 'nurse' (or any non-doctor value), callCloudGateway is skipped
+   * and the config mode is coerced to 'local_only'. Nurses get the full
+   * on-device stack in Phase 02a (see specs/02a-liquid-ai-on-device.md).
+   */
+  role?: 'nurse' | 'doctor' | 'admin' | 'ops_manager' | string
+}
+
+export async function queryLLM(
+  config: LLMConfig,
+  messages: LLMMessage[],
+  opts: QueryLLMOptions = {}
+): Promise<LLMResponse[]> {
+  const isDoctor = opts.role === 'doctor' || opts.role === 'admin'
+  const effective: LLMConfig = isDoctor ? config : { ...config, mode: 'local_only' }
+
+  switch (effective.mode) {
     case 'local_only':
-      return [await callOllama(config, messages)]
+      return [await callOllama(effective, messages)]
     case 'local_first': {
-      const local = await callOllama(config, messages)
+      const local = await callOllama(effective, messages)
       if (!local.error) return [local]
-      return [local, await callCloudGateway(config, messages)]
+      return [local, await callCloudGateway(effective, messages, opts)]
     }
     case 'cloud_first': {
-      const cloud = await callCloudGateway(config, messages)
+      const cloud = await callCloudGateway(effective, messages, opts)
       if (!cloud.error) return [cloud]
-      return [cloud, await callOllama(config, messages)]
+      return [cloud, await callOllama(effective, messages)]
     }
     case 'dual': {
-      const [local, cloud] = await Promise.all([callOllama(config, messages), callCloudGateway(config, messages)])
+      const [local, cloud] = await Promise.all([callOllama(effective, messages), callCloudGateway(effective, messages, opts)])
       return [local, cloud]
     }
   }

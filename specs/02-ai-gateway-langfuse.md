@@ -1,10 +1,20 @@
-# Phase 2 — AI Gateway + Langfuse end-to-end
+# Phase 2 — Cloud AI suggestions for doctors (admin-gated, HITL)
 
-**Goal**: Route every LLM call through Cloudflare AI Gateway (caching, rate limits, failover, cost ledger) and emit Langfuse traces for every model invocation. Replace the placeholder in `routes/ai-gateway.ts` with a working implementation.
+**Goal**: Route **doctor-facing** cloud LLM calls through Cloudflare AI Gateway (caching, rate limits, failover, cost ledger) and emit PHI-redacted Langfuse traces. Replace the placeholder in `routes/ai-gateway.ts` with a production implementation.
+
+**Scope narrowing (2026-04-15)**: This phase handles **doctor-only cloud AI suggestions**. The nurse flow never touches cloud AI — it runs entirely on-device via the pipeline in Phase 02a. Cloud output is labeled "AI Suggestion — Doctor's Diagnosis Required" and every accept/reject/edit is written to `audit_log`.
 
 **Prerequisites**: Phase 0 complete. Independent of Phase 1.
 
 **Effort**: 1 day.
+
+---
+
+## Non-goals (out of this phase)
+
+- **Nurse-facing AI**. Nurses do not call `/api/ai/*`; attempts return 403. Their entire AI surface is on-device (Phase 02a).
+- **Cloud AI by default**. Cloud AI is off unless the admin flips `ai_config.features_json.cloud_ai_suggestions = true` for the org.
+- **Autonomous AI decisions**. Cloud output is always an advisory suggestion; the doctor's diagnosis is authoritative.
 
 ---
 
@@ -24,7 +34,7 @@
 - **Gateway path**: `https://gateway.ai.cloudflare.com/v1/{ACCOUNT_ID}/{GATEWAY_ID}/{provider}` for Gemini, Claude, Groq, Workers AI
 - **Langfuse hosting**: self-hosted in `ap-south-1` (decision recorded in RESIDENCY.md). If self-host not ready in this phase, START with PHI-redacted spans to the cloud and migrate later.
 - **Trace structure**: one trace per screening session, one span per AI call, span attributes include `module_type`, `child_age_months_band`, `provider`, `model`, `tokens_in`, `tokens_out`, `latency_ms`, `cached`. NO raw image bytes, NO patient identifiers.
-- **Failover order**: `gemini-2.0-flash` → `claude-haiku-4-5` → `@cf/meta/llama-3.3-70b-instruct` (Workers AI fallback so we always answer). Configurable per-org via `ai_config.features_json.failover_chain`.
+- **Failover order (revised 2026-04-15)**: Tier 1 **Workers AI `@cf/meta/llama-3.3-70b-instruct-fp8-fast`** (free, APAC, default) → Tier 2 **Groq `llama-3.3-70b-versatile`** (same model family, fast) → Tier 3 **Gemini 2.0 Flash** (per-org overflow, only if `GEMINI_API_KEY` + `features_json.overflow_providers` includes `gemini`) → Tier 4 **Claude Haiku 4.5** (same gate for `anthropic`). Configurable per-org via `ai_config.features_json`.
 - **Cache TTL**: 1 hour for image-analysis prompts (deterministic prompt + same image hash). Disabled for free-text doctor questions.
 
 ---

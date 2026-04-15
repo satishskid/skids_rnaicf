@@ -315,6 +315,110 @@ export function AIDevicesTab() {
           </div>
         </CardContent>
       </Card>
+
+      <AIGatewayCard />
     </div>
+  )
+}
+
+function AIGatewayCard() {
+  const [testing, setTesting] = useState(false)
+  const [testResult, setTestResult] = useState<null | { provider: string; cached: boolean; latencyMs: number; text: string; error?: string }>(null)
+  const [today, setToday] = useState<null | { totalUsdMicros: number; requests: number; cacheHits: number; byProvider: Array<{ provider: string; requests: number; usd_micros: number }> }>(null)
+
+  useEffect(() => {
+    async function loadToday() {
+      try {
+        const res: any = await apiCall('/api/ai/usage/today')
+        setToday(res)
+      } catch {
+        setToday({ totalUsdMicros: 0, requests: 0, cacheHits: 0, byProvider: [] })
+      }
+    }
+    loadToday()
+  }, [])
+
+  async function runTest() {
+    setTesting(true)
+    setTestResult(null)
+    try {
+      const res: any = await apiCall('/api/ai/analyze', {
+        method: 'POST',
+        body: JSON.stringify({
+          messages: [
+            { role: 'system', content: 'You are a test harness. Reply with exactly: OK' },
+            { role: 'user', content: 'ping' },
+          ],
+          cacheable: false,
+        }),
+      })
+      setTestResult({ provider: res.provider, cached: !!res.cached, latencyMs: res.latencyMs, text: res.text ?? '' })
+    } catch (err) {
+      setTestResult({ provider: 'error', cached: false, latencyMs: 0, text: '', error: err instanceof Error ? err.message : 'failed' })
+    } finally {
+      setTesting(false)
+    }
+  }
+
+  const totalUsd = today ? (today.totalUsdMicros / 1_000_000).toFixed(4) : '—'
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2">
+          <Bot className="h-4 w-4" />
+          AI Gateway
+        </CardTitle>
+        <CardDescription>Cloudflare AI Gateway routing, cost ledger, and Langfuse trace id per request.</CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        <div className="grid grid-cols-3 gap-3">
+          <div className="p-3 bg-muted rounded-lg">
+            <p className="text-[10px] text-muted-foreground">Today's spend (USD)</p>
+            <p className="text-lg font-semibold">{totalUsd}</p>
+          </div>
+          <div className="p-3 bg-muted rounded-lg">
+            <p className="text-[10px] text-muted-foreground">Requests</p>
+            <p className="text-lg font-semibold">{today?.requests ?? '—'}</p>
+          </div>
+          <div className="p-3 bg-muted rounded-lg">
+            <p className="text-[10px] text-muted-foreground">Cache hits</p>
+            <p className="text-lg font-semibold">{today?.cacheHits ?? '—'}</p>
+          </div>
+        </div>
+        {today && today.byProvider.length > 0 && (
+          <div className="text-xs space-y-1">
+            {today.byProvider.map((p) => (
+              <div key={p.provider} className="flex justify-between">
+                <span className="text-muted-foreground">{p.provider}</span>
+                <span>{p.requests} req · ${((p.usd_micros ?? 0) / 1_000_000).toFixed(4)}</span>
+              </div>
+            ))}
+          </div>
+        )}
+        <button
+          type="button"
+          onClick={runTest}
+          disabled={testing}
+          className="text-xs px-3 py-2 bg-primary text-primary-foreground rounded-lg hover:opacity-90 disabled:opacity-50"
+        >
+          {testing ? 'Testing…' : 'Test gateway'}
+        </button>
+        {testResult && (
+          <div className="text-xs space-y-1 p-3 bg-muted rounded-lg">
+            {testResult.error ? (
+              <p className="text-destructive">{testResult.error}</p>
+            ) : (
+              <>
+                <p><span className="text-muted-foreground">provider:</span> {testResult.provider}</p>
+                <p><span className="text-muted-foreground">cached:</span> {testResult.cached ? 'yes' : 'no'}</p>
+                <p><span className="text-muted-foreground">latency:</span> {testResult.latencyMs}ms</p>
+                <p className="truncate"><span className="text-muted-foreground">reply:</span> {testResult.text}</p>
+              </>
+            )}
+          </div>
+        )}
+      </CardContent>
+    </Card>
   )
 }

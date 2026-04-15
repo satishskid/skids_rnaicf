@@ -6,6 +6,9 @@ account_id = "9f4998a66a5d7bd7a230d0222544fbe6"
 
 [vars]
 ENVIRONMENT = "production"
+# Phase 2 — Cloudflare AI Gateway routing
+AI_GATEWAY_ACCOUNT_ID = "9f4998a66a5d7bd7a230d0222544fbe6"
+AI_GATEWAY_ID = "skids-screen"
 
 # Turso + Better Auth secrets are set via:
 #   wrangler secret put TURSO_URL

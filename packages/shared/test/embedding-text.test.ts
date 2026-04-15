@@ -47,8 +47,8 @@ test('buildEmbeddingText — tolerates malformed JSON annotations', () => {
     annotation_data: '{"not":"array"}',
   })
   assert.ok(s.includes('module:ear'))
-  assert.ok(\!s.includes('ai:'))
-  assert.ok(\!s.includes('nurse:'))
+  assert.ok(!s.includes('ai:'))
+  assert.ok(!s.includes('nurse:'))
 })
 
 test('sha1Hex — produces 40-char hex, stable for same input', async () => {

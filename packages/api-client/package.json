@@ -8,6 +8,7 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@skids/worker": "workspace:*",
     "hono": "^4.7.0"
   },
   "devDependencies": {
