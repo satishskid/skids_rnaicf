@@ -51,6 +51,24 @@ failover, cost ledger). Each request writes a Langfuse trace (PHI-redacted) and
 an `ai_usage` row carrying `cached`, `gateway_request_id`, `langfuse_trace_id`,
 `cost_usd_micros`, `module_type`, `provider`, `session_id`.
 
+### Deploy prerequisites
+
+**Create the AI Gateway slug `skids-screen` in the Cloudflare dashboard BEFORE
+deploying the worker.** Navigate: Account → AI → AI Gateway → Create Gateway →
+slug `skids-screen`. Without this, the base URL built in
+`packages/shared/src/ai/gateway-client.ts`
+(`https://gateway.ai.cloudflare.com/v1/{account}/skids-screen/{provider}`)
+resolves to a 404 and every LLM call fails over straight to the workers-ai
+last-resort binding — silent degradation that's hard to spot until Langfuse
+costs stay at zero.
+
+Also provision (once per environment):
+- Self-hosted Langfuse on Hetzner Mumbai (or managed EU with PHI redaction on —
+  redaction is already enforced in code, but Mumbai keeps latency tight).
+- Anthropic API key with `claude-haiku-4-5` access (failover tier 2).
+- Groq API key (optional — not in default failover chain; add per-org via
+  `ai_config.features_json.failover_chain` if needed).
+
 ### Deployment
 
 ```bash
