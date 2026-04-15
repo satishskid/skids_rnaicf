@@ -7,9 +7,9 @@ Single source of truth for phase progress. Every phase spec requires this file t
 | 00 | `specs/00-preflight.md` | DONE | planner-agent | #2 | 2026-04-15 |
 | 01 | `specs/01-turso-vectors.md` | DONE | planner-agent | #3 | 2026-04-15 |
 | 02 | `specs/02-ai-gateway-langfuse.md` | DONE | claude-code | #4 | 2026-04-15 |
-| 02a-web | `specs/decisions/2026-04-15-phase-02a-web-liquid-ai-plan.md` | IN_PROGRESS | claude-code | — | — |
+| 02a-web | `specs/decisions/2026-04-15-phase-02a-web-liquid-ai-plan.md` | DONE | claude-code | PR #8 | 2026-04-15 |
 | 02a-mobile | `specs/decisions/2026-04-15-phase-02a-mobile-deferred.md` | DEFERRED | — | — | — |
-| 03 | `specs/03-sandbox-pdf-reports.md` | TODO | — | — | — |
+| 03 | `specs/03-sandbox-pdf-reports.md` | DONE | claude-code | PR #9 | 2026-04-15 |
 | 04 | `specs/04-duckdb-analytics.md` | TODO | — | — | — |
 | 05 | `specs/05-workflows-queues.md` | TODO | — | — | — |
 | 06 | `specs/06-sandbox-second-opinion.md` | TODO | — | — | — |

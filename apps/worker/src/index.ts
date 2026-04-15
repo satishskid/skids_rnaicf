@@ -21,9 +21,10 @@ import { exportRoutes } from './routes/export'
 import { campaignProgressRoutes } from './routes/campaign-progress'
 import { screeningEventsRoutes } from './routes/screening-events'
 import { reportTokenRoutes } from './routes/report-tokens'
-// Phase 03 — PDF report issuance + consumer
+// Phase 03 — PDF report issuance + consumer + cron pre-warm
 import { reportRenderRoutes } from './routes/report-render'
 import { reportConsumeRoutes } from './routes/report-consume'
+import { scheduledHandler } from './scheduled'
 import { pinAuthRoutes } from './routes/pin-auth'
 import { educationRoutes } from './routes/education'
 import { accountRoutes } from './routes/account'
@@ -82,6 +83,8 @@ export type Bindings = {
   // Phase 03 — PDF report bucket + URL HMAC signing key (see wrangler.toml)
   R2_REPORTS_BUCKET: R2Bucket
   REPORT_SIGNING_KEY: string
+  // Phase 03 — cron pre-warm kill switch ('1' = enabled). Default off.
+  FEATURE_REPORT_PREWARM?: string
 }
 
 // Variables set per-request
@@ -323,5 +326,10 @@ app.get('/', (c) => {
   })
 })
 
-export default app
+// Default export upgraded to the object form to attach the Phase 03 scheduled
+// handler alongside fetch. Keeps `app.fetch` wiring intact.
+export default {
+  fetch: app.fetch,
+  scheduled: scheduledHandler,
+} satisfies ExportedHandler<Bindings>
 export type AppType = typeof app
