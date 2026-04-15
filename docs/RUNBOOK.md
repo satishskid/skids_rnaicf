@@ -51,6 +51,44 @@ failover, cost ledger). Each request writes a Langfuse trace (PHI-redacted) and
 an `ai_usage` row carrying `cached`, `gateway_request_id`, `langfuse_trace_id`,
 `cost_usd_micros`, `module_type`, `provider`, `session_id`.
 
+### Scope (2026-04-15)
+
+**Doctor-only cloud AI suggestions.** Nurses do NOT call `/api/ai/*` — they
+receive 403. Every nurse-side AI capability lands in Phase 02a (on-device
+Liquid AI LFM2.5-VL-450M, see `specs/02a-liquid-ai-on-device.md`). Cloud AI
+output is always labeled "AI Suggestion — Doctor's Diagnosis Required" and
+every accept / reject / edit is written to `audit_log`.
+
+### Admin enablement (per-org)
+
+Cloud AI is **off by default**. An admin must flip it on for the org:
+
+```sql
+-- Turn on for org "default" (adjust org_id as needed)
+UPDATE ai_config
+   SET config_json = json_set(
+         COALESCE(config_json, '{}'),
+         '$.features.cloud_ai_suggestions', json('true')
+       )
+ WHERE org_id = 'default';
+```
+
+To enable optional overflow providers (Gemini / Claude), extend
+`features.overflow_providers`:
+
+```sql
+UPDATE ai_config
+   SET config_json = json_set(
+         config_json,
+         '$.features.overflow_providers', json('["gemini"]')
+       )
+ WHERE org_id = 'default';
+```
+
+When the flag is off, doctor calls to `/api/ai/*` return 503 with `remedy`
+pointing back here. Admin users bypass the flag so the Settings test-gateway
+button still works.
+
 ### Deploy prerequisites
 
 **Create the AI Gateway slug `skids-screen` in the Cloudflare dashboard BEFORE
@@ -62,23 +100,30 @@ resolves to a 404 and every LLM call fails over straight to the workers-ai
 last-resort binding — silent degradation that's hard to spot until Langfuse
 costs stay at zero.
 
-Also provision (once per environment):
-- Self-hosted Langfuse on Hetzner Mumbai (or managed EU with PHI redaction on —
-  redaction is already enforced in code, but Mumbai keeps latency tight).
-- Anthropic API key with `claude-haiku-4-5` access (failover tier 2).
-- Groq API key (optional — not in default failover chain; add per-org via
-  `ai_config.features_json.failover_chain` if needed).
+Provision once per environment:
+
+- **Required**: `GROQ_API_KEY` (tier 2 failover — same `llama-3.3-70b` family
+  as workers-ai tier 1, so model behavior stays consistent when workers-ai
+  blips).
+- **Required**: `LANGFUSE_PUBLIC_KEY`, `LANGFUSE_SECRET_KEY`, `LANGFUSE_BASE_URL`
+  (self-hosted Langfuse on Hetzner Mumbai preferred; redaction already enforced
+  in code, but Mumbai keeps latency tight).
+- **Optional (per-org overflow)**: `GEMINI_API_KEY` (tier 3),
+  `ANTHROPIC_API_KEY` (tier 4). Only reached when the admin adds the provider
+  to `ai_config.features.overflow_providers`.
 
 ### Deployment
 
 ```bash
 # One-time: create the Gateway in CF dashboard with slug `skids-screen`.
-# Secrets (set per env):
+# Required secrets (set per env):
 wrangler secret put LANGFUSE_PUBLIC_KEY --name skids-api
 wrangler secret put LANGFUSE_SECRET_KEY --name skids-api
 wrangler secret put LANGFUSE_BASE_URL   --name skids-api   # e.g. https://langfuse.skids.in
-wrangler secret put ANTHROPIC_API_KEY   --name skids-api
-wrangler secret put GROQ_API_KEY        --name skids-api
+wrangler secret put GROQ_API_KEY        --name skids-api   # REQUIRED (tier 2)
+# Optional overflow — only if the admin plans to enable it per-org:
+wrangler secret put GEMINI_API_KEY      --name skids-api   # optional (tier 3)
+wrangler secret put ANTHROPIC_API_KEY   --name skids-api   # optional (tier 4)
 
 # AI_GATEWAY_ACCOUNT_ID and AI_GATEWAY_ID are in wrangler.toml [vars] —
 # override per-env with wrangler secret put if staging uses a different gateway.

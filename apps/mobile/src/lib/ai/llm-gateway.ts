@@ -601,6 +601,13 @@ export interface QueryLLMOptions {
   sessionId?: string
   moduleType?: string
   campaignCode?: string
+  /**
+   * Caller-asserted role. Phase 02 scope: cloud AI is doctor-only. When
+   * role is 'nurse' (or any non-doctor value), callCloudGateway is skipped
+   * and the config mode is coerced to 'local_only'. Nurses get the full
+   * on-device stack in Phase 02a (see specs/02a-liquid-ai-on-device.md).
+   */
+  role?: 'nurse' | 'doctor' | 'admin' | 'ops_manager' | string
 }
 
 export async function queryLLM(
@@ -608,21 +615,24 @@ export async function queryLLM(
   messages: LLMMessage[],
   opts: QueryLLMOptions = {}
 ): Promise<LLMResponse[]> {
-  switch (config.mode) {
+  const isDoctor = opts.role === 'doctor' || opts.role === 'admin'
+  const effective: LLMConfig = isDoctor ? config : { ...config, mode: 'local_only' }
+
+  switch (effective.mode) {
     case 'local_only':
-      return [await callOllama(config, messages)]
+      return [await callOllama(effective, messages)]
     case 'local_first': {
-      const local = await callOllama(config, messages)
+      const local = await callOllama(effective, messages)
       if (!local.error) return [local]
-      return [local, await callCloudGateway(config, messages, opts)]
+      return [local, await callCloudGateway(effective, messages, opts)]
     }
     case 'cloud_first': {
-      const cloud = await callCloudGateway(config, messages, opts)
+      const cloud = await callCloudGateway(effective, messages, opts)
       if (!cloud.error) return [cloud]
-      return [cloud, await callOllama(config, messages)]
+      return [cloud, await callOllama(effective, messages)]
     }
     case 'dual': {
-      const [local, cloud] = await Promise.all([callOllama(config, messages), callCloudGateway(config, messages, opts)])
+      const [local, cloud] = await Promise.all([callOllama(effective, messages), callCloudGateway(effective, messages, opts)])
       return [local, cloud]
     }
   }

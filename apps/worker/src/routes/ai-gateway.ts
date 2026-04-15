@@ -16,6 +16,7 @@
 
 import { Hono } from 'hono'
 import type { Bindings, Variables } from '../index'
+import { logAudit } from './audit-log'
 import {
   AIGateway,
   AIGatewayError,
@@ -23,6 +24,8 @@ import {
   Langfuse,
   type Provider,
 } from '@skids/shared'
+
+export const SUGGESTION_LABEL = 'AI Suggestion — Doctor\u2019s Diagnosis Required'
 
 export const aiGatewayRoutes = new Hono<{ Bindings: Bindings; Variables: Variables }>()
 
@@ -45,17 +48,50 @@ Respond ONLY with valid JSON:
   "summary": "1-2 sentence clinical summary"
 }`
 
-function buildGateway(c: { env: Bindings }): AIGateway {
+interface OrgAIFlags {
+  cloudAiSuggestions: boolean
+  overflowProviders: Provider[]
+}
+
+async function loadOrgFlags(db: Variables['db']): Promise<OrgAIFlags> {
+  // Default-off. Single-row ai_config is the current pattern
+  // (see apps/worker/src/routes/ai-config.ts).
+  try {
+    const r = await db.execute(`SELECT config_json FROM ai_config LIMIT 1`)
+    if (r.rows.length === 0) return { cloudAiSuggestions: false, overflowProviders: [] }
+    const raw = (r.rows[0] as Record<string, unknown>).config_json
+    const cfg = typeof raw === 'string' ? JSON.parse(raw) : raw
+    const features = (cfg as { features?: Record<string, unknown>; features_json?: Record<string, unknown> }).features
+      ?? (cfg as { features_json?: Record<string, unknown> }).features_json
+      ?? {}
+    const cloudAiSuggestions = features.cloud_ai_suggestions === true
+    const rawOverflow = features.overflow_providers as unknown
+    const overflowProviders = Array.isArray(rawOverflow)
+      ? (rawOverflow.filter((p) => p === 'gemini' || p === 'claude' || p === 'groq') as Provider[])
+      : []
+    return { cloudAiSuggestions, overflowProviders }
+  } catch {
+    return { cloudAiSuggestions: false, overflowProviders: [] }
+  }
+}
+
+function buildGateway(c: { env: Bindings }, overflow: Provider[]): AIGateway {
+  const keys: Partial<Record<Provider, string>> = { groq: c.env.GROQ_API_KEY }
+  // Tier 3/4 only if BOTH the secret is set AND the admin has opted in per-org.
+  if (overflow.includes('gemini') && c.env.GEMINI_API_KEY) keys.gemini = c.env.GEMINI_API_KEY
+  if (overflow.includes('claude') && c.env.ANTHROPIC_API_KEY) keys.claude = c.env.ANTHROPIC_API_KEY
+
+  // Tier 1 workers-ai (free, APAC) → Tier 2 groq (same model family) →
+  // optional overflow tiers only if keys AND per-org flag are both set.
+  const failover: Provider[] = ['workers-ai', 'groq']
+  if (keys.gemini) failover.push('gemini')
+  if (keys.claude) failover.push('claude')
+
   return new AIGateway({
     accountId: c.env.AI_GATEWAY_ACCOUNT_ID,
     gatewayId: c.env.AI_GATEWAY_ID,
-    keys: {
-      gemini: c.env.GEMINI_API_KEY,
-      claude: c.env.ANTHROPIC_API_KEY,
-      groq: c.env.GROQ_API_KEY,
-    },
-    // Gemini primary, Claude fallback, Workers AI as guaranteed-available last resort.
-    failover: ['gemini', 'claude', 'workers-ai'],
+    keys,
+    failover,
     aiBinding: c.env.AI,
   })
 }
@@ -154,7 +190,21 @@ aiGatewayRoutes.post('/analyze', async (c) => {
     return c.json({ error: 'AI Gateway feature flag disabled' }, 503)
   }
 
-  const gateway = buildGateway(c)
+  const flags = await loadOrgFlags(db)
+  const userRole = c.get('userRole')
+  // Admin can call for the Settings test-gateway button regardless of org flag.
+  // Doctors require the per-org cloud_ai_suggestions flag to be on.
+  if (userRole !== 'admin' && !flags.cloudAiSuggestions) {
+    return c.json(
+      {
+        error: 'Cloud AI not enabled for this org',
+        remedy: 'Admin must set ai_config.features.cloud_ai_suggestions = true',
+      },
+      503
+    )
+  }
+
+  const gateway = buildGateway(c, flags.overflowProviders)
   const langfuse = buildLangfuse(c)
 
   const joinedPrompt = body.messages.map((m) => `${m.role}:${m.content}`).join('\n')
@@ -211,6 +261,23 @@ aiGatewayRoutes.post('/analyze', async (c) => {
       langfuseTraceId: traceId,
     })
 
+    if (userId) {
+      await logAudit(db, {
+        userId,
+        action: 'cloud_ai_suggestion.emitted',
+        entityType: 'ai_analyze',
+        campaignCode: body.campaignCode,
+        details: JSON.stringify({
+          provider: res.provider,
+          model: res.model,
+          traceId,
+          cached: res.cached,
+          moduleType: body.moduleType,
+          sessionId: body.sessionId,
+        }),
+      })
+    }
+
     return c.json({
       text: res.text,
       provider: res.provider,
@@ -219,6 +286,7 @@ aiGatewayRoutes.post('/analyze', async (c) => {
       latencyMs: res.latencyMs,
       tokensUsed: res.tokensIn + res.tokensOut,
       traceId,
+      label: SUGGESTION_LABEL,
     })
   } catch (err) {
     const attempts = err instanceof AIGatewayError ? err.attempts : []
@@ -257,6 +325,18 @@ aiGatewayRoutes.post('/vision', async (c) => {
   if (!body.image) return c.json({ error: 'No image provided' }, 400)
   if (!gatewayEnabled(c)) return c.json({ error: 'AI Gateway feature flag disabled' }, 503)
 
+  const flags = await loadOrgFlags(db)
+  const userRole = c.get('userRole')
+  if (userRole !== 'admin' && !flags.cloudAiSuggestions) {
+    return c.json(
+      {
+        error: 'Cloud AI not enabled for this org',
+        remedy: 'Admin must set ai_config.features.cloud_ai_suggestions = true',
+      },
+      503
+    )
+  }
+
   let userContent = `Analyze this ${body.moduleName} (${body.moduleType}) screening image.`
   if (body.childAge) userContent += ` Patient age band: ${body.childAge}.`
   if (body.nurseChips?.length) {
@@ -280,7 +360,7 @@ aiGatewayRoutes.post('/vision', async (c) => {
     imageSha256: imageSha,
   })
 
-  const gateway = buildGateway(c)
+  const gateway = buildGateway(c, flags.overflowProviders)
   const langfuse = buildLangfuse(c)
   const traceId = await langfuse.startTrace({
     name: 'ai.vision',
@@ -350,6 +430,24 @@ aiGatewayRoutes.post('/vision', async (c) => {
       langfuseTraceId: traceId,
     })
 
+    if (userId) {
+      await logAudit(db, {
+        userId,
+        action: 'cloud_ai_suggestion.emitted',
+        entityType: 'ai_vision',
+        campaignCode: body.campaignCode,
+        details: JSON.stringify({
+          provider: res.provider,
+          model: res.model,
+          traceId,
+          cached: res.cached,
+          moduleType: body.moduleType,
+          sessionId: body.sessionId,
+          imageSha256: imageSha,
+        }),
+      })
+    }
+
     return c.json({
       result: parsed,
       provider: res.provider,
@@ -358,6 +456,7 @@ aiGatewayRoutes.post('/vision', async (c) => {
       latencyMs: res.latencyMs,
       tokensUsed: res.tokensIn + res.tokensOut,
       traceId,
+      label: SUGGESTION_LABEL,
     })
   } catch (err) {
     const attempts = err instanceof AIGatewayError ? err.attempts : []
@@ -388,6 +487,43 @@ aiGatewayRoutes.post('/vision', async (c) => {
       200
     )
   }
+})
+
+/** POST /api/ai/suggestion/:outcome — HITL audit for accept/reject/edit of a cloud AI suggestion. */
+aiGatewayRoutes.post('/suggestion/:outcome', async (c) => {
+  const db = c.get('db')
+  const userId = c.get('userId')
+  const outcome = c.req.param('outcome')
+  if (!['accepted', 'rejected', 'edited'].includes(outcome)) {
+    return c.json({ error: 'outcome must be accepted|rejected|edited' }, 400)
+  }
+  const body = await c.req.json<{
+    traceId?: string
+    sessionId?: string
+    moduleType?: string
+    campaignCode?: string
+    observationId?: string
+    editedPayload?: unknown
+    note?: string
+  }>()
+  if (!userId) return c.json({ error: 'unauthenticated' }, 401)
+
+  await logAudit(db, {
+    userId,
+    action: `cloud_ai_suggestion.${outcome}`,
+    entityType: 'ai_suggestion',
+    entityId: body.observationId,
+    campaignCode: body.campaignCode,
+    details: JSON.stringify({
+      traceId: body.traceId,
+      sessionId: body.sessionId,
+      moduleType: body.moduleType,
+      note: body.note,
+      editedPayload: body.editedPayload,
+    }),
+  })
+
+  return c.json({ ok: true, outcome })
 })
 
 /** GET /api/ai/usage — legacy aggregate (kept for compat with Admin tools). */

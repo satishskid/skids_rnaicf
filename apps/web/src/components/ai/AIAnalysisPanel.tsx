@@ -110,10 +110,15 @@ export function AIAnalysisPanel({
         ...(llmConfig?.sendImagesToCloud !== undefined && { sendImagesToCloud: llmConfig.sendImagesToCloud }),
       }
 
-      // Nurse mode forces local_only for PHI protection
+      // Nurse mode: on-device ONLY. Cloud AI is doctor-tier (Phase 02).
+      // Full on-device stack (LFM2.5-VL-450M + function calling) lands in
+      // Phase 02a — see specs/02a-liquid-ai-on-device.md. Until then, nurses
+      // run the Ollama path via `local_only` with zero cloud egress.
       if (mode === 'nurse') {
         config.mode = 'local_only'
         config.sendImagesToCloud = false
+        config.cloudGatewayUrl = ''
+        config.cloudApiKey = ''
       }
 
       const responses = await queryLLM(config, messagesWithImage)
@@ -222,6 +227,14 @@ export function AIAnalysisPanel({
       {/* Results */}
       {result && (
         <div className="space-y-2.5">
+          {/* HITL banner — every cloud-AI output carries this label so the
+              doctor knows the suggestion is advisory, not a diagnosis. */}
+          {mode === 'doctor' && (
+            <div className="p-2 rounded-lg bg-amber-50 border border-amber-300 text-amber-800 text-[11px] font-medium">
+              AI Suggestion &mdash; Doctor&rsquo;s Diagnosis Required
+            </div>
+          )}
+
           {/* Risk badge + summary */}
           <div className="flex items-start gap-2">
             <span className={`text-[10px] px-2 py-0.5 rounded-full ${RISK_COLORS[result.riskLevel]}`}>

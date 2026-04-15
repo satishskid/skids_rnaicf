@@ -60,13 +60,14 @@ export type Bindings = {
   // AyuSynk webhook
   AYUSYNC_WEBHOOK_SECRET: string
   AI: Ai                  // Cloudflare Workers AI (free, no API key needed)
-  GEMINI_API_KEY: string  // Optional: Gemini Flash as additional provider
+  GEMINI_API_KEY?: string   // Phase 2 — OPTIONAL per-org overflow only (tier 3)
   // Phase 2 — Cloudflare AI Gateway + Langfuse
   AI_GATEWAY_ACCOUNT_ID: string
   AI_GATEWAY_ID: string
-  // Optional provider API keys consumed by the Gateway (set via wrangler secret put)
+  // Primary cloud provider (required — same model family as workers-ai tier 1)
+  GROQ_API_KEY: string
+  // Optional per-org overflow, enabled via ai_config.features_json.overflow_providers
   ANTHROPIC_API_KEY?: string
-  GROQ_API_KEY?: string
   // Phase 1 — Turso vectors feature flag (default ON; set to '0' or 'false' to disable)
   FEATURE_TURSO_VECTORS?: string
   // Phase 2 — AI Gateway feature flag (default ON; set to '0' or 'false' to bypass gateway)
@@ -192,8 +193,12 @@ app.use('/api/aws-proxy/*', authMiddleware)
 app.route('/api/aws-proxy', awsProxyRoutes)
 
 // AI Gateway — require auth
+// Phase 2 — cloud AI is DOCTOR-ONLY (admin allowed for Settings test-gateway).
+// Nurses receive 403 with a pointer to the Phase 02a on-device flow.
 app.use('/api/ai', authMiddleware)
 app.use('/api/ai/*', authMiddleware)
+app.use('/api/ai', requireRole('doctor', 'admin'))
+app.use('/api/ai/*', requireRole('doctor', 'admin'))
 app.route('/api/ai', aiGatewayRoutes)
 
 // AI Config — require admin (API keys, model settings)

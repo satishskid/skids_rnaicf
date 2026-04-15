@@ -27,31 +27,75 @@ function json(body: unknown, init: ResponseInit = {}): Response {
   return new Response(JSON.stringify(body), { status: init.status ?? 200, headers })
 }
 
-test('failover: gemini fails, claude succeeds, tokens recorded', async () => {
+test('failover tier-1 workers-ai answers first (default chain: workers-ai → groq)', async () => {
+  const { fn, calls } = stubFetch([])
+  let aiCalled = 0
+  const g = new AIGateway({
+    accountId: 'acct',
+    gatewayId: 'gw',
+    keys: { groq: 'gk' },
+    // Doctor-only, default-after-refactor chain.
+    failover: ['workers-ai', 'groq'],
+    fetchImpl: fn,
+    aiBinding: {
+      run: async () => {
+        aiCalled++
+        return { response: 'ok-from-llama-33' }
+      },
+    },
+  })
+  const res = await g.chat({ messages: [{ role: 'user', content: 'hi' }] })
+  assert.equal(res.provider, 'workers-ai')
+  assert.equal(res.model, '@cf/meta/llama-3.3-70b-instruct-fp8-fast')
+  assert.equal(res.text, 'ok-from-llama-33')
+  assert.equal(aiCalled, 1)
+  assert.equal(calls.length, 0, 'no fetch should fire when workers-ai succeeds')
+})
+
+test('failover: workers-ai throws → groq picks up, tokens recorded', async () => {
   const { fn } = stubFetch([
-    // gemini → 500
-    new Response('upstream 500', { status: 500 }),
-    // claude → 200
     json(
-      { content: [{ text: 'ok' }], usage: { input_tokens: 12, output_tokens: 5 } },
-      { headers: { 'cf-aig-cache-status': 'MISS', 'cf-aig-cost': '0.0001', 'cf-aig-id': 'req-abc' } }
+      { choices: [{ message: { content: 'from groq' } }], usage: { prompt_tokens: 9, completion_tokens: 4 } },
+      { headers: { 'cf-aig-cache-status': 'MISS', 'cf-aig-cost': '0.00005', 'cf-aig-id': 'req-xyz' } }
     ),
   ])
   const g = new AIGateway({
     accountId: 'acct',
     gatewayId: 'gw',
-    keys: { gemini: 'g', claude: 'c' },
-    failover: ['gemini', 'claude', 'workers-ai'],
+    keys: { groq: 'gk' },
+    failover: ['workers-ai', 'groq'],
     fetchImpl: fn,
-    aiBinding: { run: async () => ({ response: 'never called' }) },
+    aiBinding: { run: async () => { throw new Error('workers-ai unavailable') } },
+  })
+  const res = await g.chat({ messages: [{ role: 'user', content: 'hi' }] })
+  assert.equal(res.provider, 'groq')
+  assert.equal(res.text, 'from groq')
+  assert.equal(res.tokensIn, 9)
+  assert.equal(res.tokensOut, 4)
+  assert.equal(res.gatewayRequestId, 'req-xyz')
+})
+
+test('overflow tiers: gemini + claude only reached when both present in chain', async () => {
+  // workers-ai fails, groq fails, gemini fails, claude succeeds.
+  const { fn, calls } = stubFetch([
+    new Response('groq 500', { status: 500 }),
+    new Response('gemini 500', { status: 500 }),
+    json({ content: [{ text: 'from claude' }], usage: { input_tokens: 2, output_tokens: 1 } }),
+  ])
+  const g = new AIGateway({
+    accountId: 'a',
+    gatewayId: 'b',
+    keys: { groq: 'gk', gemini: 'g', claude: 'c' },
+    failover: ['workers-ai', 'groq', 'gemini', 'claude'],
+    fetchImpl: fn,
+    aiBinding: { run: async () => { throw new Error('nope') } },
   })
   const res = await g.chat({ messages: [{ role: 'user', content: 'hi' }] })
   assert.equal(res.provider, 'claude')
-  assert.equal(res.text, 'ok')
-  assert.equal(res.tokensIn, 12)
-  assert.equal(res.tokensOut, 5)
-  assert.equal(res.gatewayRequestId, 'req-abc')
-  assert.equal(res.cached, false)
+  assert.equal(calls.length, 3)
+  assert.match(calls[0].url, /groq\/openai\/v1\/chat\/completions/)
+  assert.match(calls[1].url, /google-ai-studio\/v1beta\/models/)
+  assert.match(calls[2].url, /anthropic\/v1\/messages/)
 })
 
 test('cache header propagation: cf-aig-cache-status=HIT surfaces as cached=true', async () => {
@@ -73,14 +117,14 @@ test('cache header propagation: cf-aig-cache-status=HIT surfaces as cached=true'
 test('all providers fail: AIGatewayError surfaces attempts', async () => {
   const { fn } = stubFetch([
     new Response('err', { status: 500 }),
-    new Response('err', { status: 500 }),
   ])
   const g = new AIGateway({
     accountId: 'a',
     gatewayId: 'b',
-    keys: { gemini: 'g', claude: 'c' },
-    failover: ['gemini', 'claude'],
+    keys: { groq: 'gk' },
+    failover: ['workers-ai', 'groq'],
     fetchImpl: fn,
+    aiBinding: { run: async () => { throw new Error('workers-ai down') } },
   })
   await assert.rejects(() => g.chat({ messages: [{ role: 'user', content: 'hi' }] }), /all providers failed/)
 })
@@ -92,9 +136,10 @@ test('modelHint reorders the failover chain', async () => {
   const g = new AIGateway({
     accountId: 'a',
     gatewayId: 'b',
-    keys: { gemini: 'g', claude: 'c' },
-    failover: ['gemini', 'claude'],
+    keys: { groq: 'gk', gemini: 'g', claude: 'c' },
+    failover: ['workers-ai', 'groq', 'gemini', 'claude'],
     fetchImpl: fn,
+    aiBinding: { run: async () => { throw new Error('skip') } },
   })
   await g.chat({ messages: [{ role: 'user', content: 'hi' }], modelHint: 'claude' })
   assert.match(calls[0].url, /anthropic\/v1\/messages/)

@@ -76,11 +76,12 @@ const DEFAULT_VISION_MODEL: Record<Provider, string> = {
   'workers-ai': '@cf/meta/llama-3.2-11b-vision-instruct',
 }
 
+// Chat: Llama-3.3-70B family on both workers-ai (tier 1) and groq (tier 2).
 const DEFAULT_CHAT_MODEL: Record<Provider, string> = {
   gemini: 'gemini-2.0-flash',
   claude: 'claude-haiku-4-5',
   groq: 'llama-3.3-70b-versatile',
-  'workers-ai': '@cf/meta/llama-3.3-70b-instruct',
+  'workers-ai': '@cf/meta/llama-3.3-70b-instruct-fp8-fast',
 }
 
 export class AIGatewayError extends Error {

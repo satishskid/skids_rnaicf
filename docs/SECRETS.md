@@ -16,18 +16,31 @@ Single source of truth for every secret the worker (and downstream workers) need
 | `CLOUDFLARE_R2_ENDPOINT` | skids-api | |
 | `CLOUDFLARE_R2_BUCKET` | skids-api | `skids-media` |
 | `AYUSYNC_WEBHOOK_SECRET` | skids-api | AyuSynk device webhook HMAC |
-| `GEMINI_API_KEY` | skids-api | Remove after Phase 2 (route via AI Gateway) |
+| `GEMINI_API_KEY` | skids-api | Now optional per-org overflow (Phase 2 tier 3) |
 
-## Phase 2 — AI Gateway + Langfuse
+## Phase 2 — Cloud AI suggestions for doctors (admin-gated)
+
+Required for any cloud AI activity:
 
 | Secret | Scope | Purpose |
 |---|---|---|
-| `LANGFUSE_SECRET_KEY` | skids-api | Langfuse SDK auth |
-| `LANGFUSE_PUBLIC_KEY` | skids-api | Langfuse SDK auth |
+| `GROQ_API_KEY` | skids-api | **Required.** Tier-2 failover — `llama-3.3-70b-versatile`, same family as workers-ai tier 1 |
+| `LANGFUSE_SECRET_KEY` | skids-api | Langfuse ingestion auth |
+| `LANGFUSE_PUBLIC_KEY` | skids-api | Langfuse ingestion auth |
 | `LANGFUSE_BASE_URL` | skids-api `[vars]` | e.g. `https://langfuse.skids.internal` |
-| `AI_GATEWAY_ACCOUNT_ID` | skids-api | CF account |
-| `AI_GATEWAY_ID` | skids-api | Gateway slug (recommended: `skids-screen`) |
-| `ANTHROPIC_API_KEY` | skids-api | Claude as failover provider |
+| `AI_GATEWAY_ACCOUNT_ID` | skids-api `[vars]` | CF account |
+| `AI_GATEWAY_ID` | skids-api `[vars]` | Gateway slug (`skids-screen`) |
+
+Optional per-org overflow (tier 3 / tier 4). Only reached when admin adds the
+provider to `ai_config.features.overflow_providers`:
+
+| Secret | Scope | Purpose |
+|---|---|---|
+| `GEMINI_API_KEY` | skids-api | Tier 3 overflow — Gemini 2.0 Flash |
+| `ANTHROPIC_API_KEY` | skids-api | Tier 4 overflow — Claude Haiku 4.5 |
+
+Failover chain: `workers-ai (@cf/meta/llama-3.3-70b-instruct-fp8-fast)` →
+`groq (llama-3.3-70b-versatile)` → *(optional)* `gemini` → *(optional)* `claude`.
 
 ## Phase 3 — Sandbox PDF reports
 
