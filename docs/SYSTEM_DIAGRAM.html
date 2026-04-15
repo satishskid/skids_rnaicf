@@ -1,0 +1,456 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>SKIDS Screen V3 — System Architecture</title>
+<link href="https://fonts.googleapis.com/css2?family=DM+Serif+Display&family=Inter:wght@400;500;600;700&family=Plus+Jakarta+Sans:wght@500;600;700&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/mermaid/10.9.1/mermaid.min.js"></script>
+<style>
+  :root {
+    --bg: #0b1020;
+    --panel: #121a35;
+    --panel-2: #0f1530;
+    --ink: #e8ecff;
+    --ink-dim: #93a0c7;
+    --accent: #7c9cff;
+    --accent-2: #a37cff;
+    --ok: #49d49d;
+    --warn: #ffc857;
+    --hot: #ff6b9a;
+    --async: #a37cff;
+    --nightly: #49d49d;
+    --evidence: #4ecdc4;
+    --device: #ffc857;
+    --border: #1f2a55;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: radial-gradient(ellipse at top, #1a2350 0%, var(--bg) 60%);
+    color: var(--ink);
+    font-family: 'Inter', system-ui, sans-serif;
+    line-height: 1.55;
+    min-height: 100vh;
+  }
+  .wrap { max-width: 1280px; margin: 0 auto; padding: 48px 32px 120px; }
+  header { margin-bottom: 48px; }
+  h1 {
+    font-family: 'DM Serif Display', serif;
+    font-size: 56px;
+    margin: 0 0 8px;
+    background: linear-gradient(135deg, #fff 0%, var(--accent) 60%, var(--accent-2) 100%);
+    -webkit-background-clip: text; background-clip: text; color: transparent;
+    letter-spacing: -0.02em;
+  }
+  .sub { color: var(--ink-dim); font-size: 18px; max-width: 780px; }
+  .sub b { color: var(--ink); font-weight: 600; }
+  section {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 20px;
+    padding: 36px 40px;
+    margin-bottom: 32px;
+    box-shadow: 0 20px 60px rgba(0,0,0,0.35);
+  }
+  section h2 {
+    font-family: 'Plus Jakarta Sans', sans-serif;
+    font-size: 28px;
+    margin: 0 0 6px;
+    font-weight: 700;
+  }
+  section .lead {
+    color: var(--ink-dim);
+    margin: 0 0 28px;
+    font-size: 15px;
+  }
+  .legend {
+    display: flex; flex-wrap: wrap; gap: 10px; margin-bottom: 24px;
+  }
+  .chip {
+    display: inline-flex; align-items: center; gap: 8px;
+    padding: 6px 12px; border-radius: 999px;
+    background: rgba(255,255,255,0.04);
+    border: 1px solid var(--border);
+    font-size: 13px; font-weight: 500;
+    color: var(--ink-dim);
+  }
+  .dot { width: 10px; height: 10px; border-radius: 50%; }
+  .d-hot { background: var(--hot); }
+  .d-async { background: var(--async); }
+  .d-nightly { background: var(--nightly); }
+  .d-device { background: var(--device); }
+  .d-evidence { background: var(--evidence); }
+  .d-ok { background: var(--ok); }
+  .mermaid { background: var(--panel-2); border-radius: 12px; padding: 24px; overflow-x: auto; }
+  .annot {
+    display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px;
+    margin-top: 28px;
+  }
+  .card {
+    background: var(--panel-2);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    padding: 20px 22px;
+  }
+  .card h3 {
+    margin: 0 0 8px;
+    font-size: 15px;
+    color: var(--ink);
+    font-family: 'Plus Jakarta Sans', sans-serif;
+    letter-spacing: 0.02em;
+    text-transform: uppercase;
+  }
+  .card p { margin: 0; color: var(--ink-dim); font-size: 14px; }
+  .card.hot h3 { color: var(--hot); }
+  .card.async h3 { color: var(--async); }
+  .card.nightly h3 { color: var(--nightly); }
+  .phase-tag {
+    display: inline-block;
+    font-size: 11px; font-weight: 700;
+    padding: 3px 8px; border-radius: 6px;
+    background: rgba(124, 156, 255, 0.15);
+    color: var(--accent);
+    margin-left: 6px;
+    vertical-align: middle;
+    letter-spacing: 0.04em;
+  }
+  .phase-tag.ok { background: rgba(73, 212, 157, 0.15); color: var(--ok); }
+  .phase-tag.warn { background: rgba(255, 200, 87, 0.15); color: var(--warn); }
+  footer {
+    text-align: center; color: var(--ink-dim); font-size: 13px;
+    margin-top: 48px; padding-top: 32px; border-top: 1px solid var(--border);
+  }
+  footer b { color: var(--ink); }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header>
+  <h1>SKIDS Screen V3</h1>
+  <p class="sub">Edge-stack architecture — <b>current state</b> grounded in the repo, <b>target state</b> after Phases 0–7 of the rollout plan. Nurse screening stays on-device; Sandbox runs async, behind the scenes, to improve accuracy over time.</p>
+</header>
+
+<div class="legend">
+  <span class="chip"><span class="dot d-device"></span> Device (on-device AI)</span>
+  <span class="chip"><span class="dot d-hot"></span> Hot path (sync, &lt;200ms)</span>
+  <span class="chip"><span class="dot d-async"></span> Async (Sandbox / Queues)</span>
+  <span class="chip"><span class="dot d-nightly"></span> Nightly (analytics)</span>
+  <span class="chip"><span class="dot d-evidence"></span> Evidence / knowledge</span>
+  <span class="chip"><span class="dot d-ok"></span> Already built</span>
+</div>
+
+<!-- =================== TARGET STATE =================== -->
+<section>
+  <h2>Target architecture — after Phases 0–7</h2>
+  <p class="lead">Hot path stays fast. Sandbox and Queues do the heavy, accuracy-improving work out of the critical path.</p>
+  <div class="mermaid">
+flowchart TB
+  classDef device fill:#2a2310,stroke:#ffc857,stroke-width:2px,color:#ffe4a6
+  classDef hot fill:#2a1420,stroke:#ff6b9a,stroke-width:2px,color:#ffd0e0
+  classDef async fill:#20133a,stroke:#a37cff,stroke-width:2px,color:#dcc9ff
+  classDef nightly fill:#0d2a20,stroke:#49d49d,stroke-width:2px,color:#bff0d8
+  classDef evidence fill:#0d2a2a,stroke:#4ecdc4,stroke-width:2px,color:#c5f0ec
+  classDef store fill:#121a35,stroke:#7c9cff,stroke-width:1.5px,color:#e8ecff
+  classDef ext fill:#1c1530,stroke:#5a4a8a,stroke-width:1px,color:#c9bfe0
+
+  subgraph DEV["📱 NURSE DEVICE — Expo on Android"]
+    direction TB
+    CAM[Camera / Mic / Form]:::device
+    QG[Quality Gate<br/>blur · exposure · framing]:::device
+    T1[Tier 1 ONNX + MediaPipe<br/>red reflex · photoscreen · ear · skin]:::device
+    T2[Tier 2 ensemble<br/>AIAnnotation&#91;&#93;]:::device
+    OFF[Offline sync queue]:::device
+    CAM --> QG --> T1 --> T2 --> OFF
+  end
+
+  subgraph HOT["⚡ HOT PATH — Worker (Hono on Cloudflare)"]
+    direction TB
+    POST[POST /api/observations<br/>returns in &lt;200ms]:::hot
+    AUTH[Better Auth / PIN<br/>Firebase bridge]:::hot
+    AIV[/api/ai/vision<br/>Gateway · cache · failover/]:::hot
+    SIM[/api/similarity/observations<br/>Turso F32_BLOB cosine/]:::hot
+    CTX[/api/reviews/:id/context<br/>evidence + similar cases/]:::hot
+    SRV[/api/reports/serve/:token<br/>HMAC → R2 stream/]:::hot
+  end
+
+  subgraph ASYNC["🌀 ASYNC — Workflow + Queues + Sandbox"]
+    direction TB
+    WF[Workflow<br/>screening-observation]:::async
+    Q1[Queue: sandbox-pdf]:::async
+    Q2[Queue: sandbox-2nd-opinion]:::async
+    Q3[Queue: analytics-trigger]:::async
+    SBX_PDF[Sandbox · WeasyPrint<br/>FourD / Child / Parent PDF]:::async
+    SBX_AI[Sandbox · Python + ONNX<br/>larger model re-analysis]:::async
+    WF --> Q1 --> SBX_PDF
+    WF --> Q2 --> SBX_AI
+    WF --> Q3
+  end
+
+  subgraph NITE["🌙 NIGHTLY — analytics-worker"]
+    direction TB
+    EXP[Turso → Parquet zstd<br/>02:00 IST cron]:::nightly
+    PUB[Publishable de-identified views]:::nightly
+    DDB[DuckDB REPL + 5 canonical queries]:::nightly
+    API_A[/api/analytics/run<br/>service binding/]:::nightly
+    EXP --> PUB --> DDB
+    PUB --> API_A
+  end
+
+  subgraph STORE["💾 Storage"]
+    direction TB
+    TURSO[(Turso libSQL<br/>ap-south-1<br/>+ F32_BLOB embedding)]:::store
+    R2M[(R2 · skids-media<br/>images / video / audio)]:::store
+    R2R[(R2 · reports<br/>rendered PDFs)]:::store
+    R2A[(R2 · skids-analytics<br/>partitioned Parquet)]:::store
+    R2MD[(R2 · skids-models<br/>ONNX + manifest)]:::store
+    VEC[(Vectorize · skids-evidence<br/>384-dim cosine)]:::evidence
+    KV[(KV · sessions · cache)]:::store
+  end
+
+  subgraph EXT["🔌 External + integrations"]
+    direction TB
+    AIG[AI Gateway<br/>gemini → claude → workers-ai]:::ext
+    LF[Langfuse<br/>PHI-redacted spans]:::ext
+    BHASH[BHASH WhatsApp]:::ext
+    AYU[AyuSynk / Welch Allyn]:::ext
+  end
+
+  OFF ==online==> POST
+  T2 -.cloud fallback.-> AIV
+
+  POST --> AUTH --> TURSO
+  POST ==starts==> WF
+  AIV --> AIG
+  AIG --> LF
+
+  SIM --> TURSO
+  CTX --> VEC
+  CTX --> SIM
+
+  SBX_PDF --> R2R
+  SBX_AI --> R2M
+  SBX_AI --> R2M
+  SBX_PDF -.cache-.- R2R
+
+  EXP --> TURSO
+  EXP --> R2A
+  PUB --> R2A
+
+  SRV --> R2R
+
+  WF -.notify.-> BHASH
+  AYU --> POST
+
+  DOC[👩‍⚕️ Doctor Inbox<br/>evidence + similar + 2nd opinion]:::hot
+  PAR[👨‍👩‍👧 Parent Portal<br/>signed PDF link]:::hot
+  AUTH_DASH[🏛 Authority Dashboard<br/>live DuckDB tiles]:::nightly
+
+  TURSO --> DOC
+  VEC --> DOC
+  R2R --> PAR
+  API_A --> AUTH_DASH
+  </div>
+
+  <div class="annot">
+    <div class="card hot">
+      <h3>Hot path <span class="phase-tag">Phase 2</span></h3>
+      <p>Nurse-facing routes return in under 200ms. AI Gateway adds caching + failover so Tier 3 cloud calls stay responsive even if one provider hiccups.</p>
+    </div>
+    <div class="card async">
+      <h3>Async lane <span class="phase-tag">Phase 3 · 5 · 6</span></h3>
+      <p>Workflow orchestrates the observation lifecycle. Queues fan out to Sandbox for PDF rendering and heavier ONNX second opinions. Never in the nurse's response time.</p>
+    </div>
+    <div class="card nightly">
+      <h3>Nightly analytics <span class="phase-tag">Phase 4</span></h3>
+      <p>A separate Worker exports Turso to partitioned Parquet on R2. DuckDB powers research and the calibration loop that feeds better models back to the device.</p>
+    </div>
+  </div>
+</section>
+
+<!-- =================== NURSE FLOW SEQUENCE =================== -->
+<section>
+  <h2>Nurse screening — end-to-end sequence</h2>
+  <p class="lead">What actually happens when a nurse screens one child. Note: in-session latency is on-device only.</p>
+  <div class="mermaid">
+sequenceDiagram
+  autonumber
+  participant N as 📱 Nurse device
+  participant W as ⚡ Worker
+  participant T as 💾 Turso
+  participant R as 💾 R2 media
+  participant WF as 🌀 Workflow
+  participant SB as 🛠 Sandbox (ONNX)
+  participant D as 👩‍⚕️ Doctor
+  participant P as 👨‍👩‍👧 Parent
+
+  N->>N: Capture photo + quality gate
+  N->>N: Tier 1/2 on-device AI
+  N->>N: Nurse confirms chips + saves
+  Note over N: Screening UX complete. No server round-trip required.
+
+  alt Device online
+    N->>R: Upload media (presigned)
+    N->>W: POST /api/observations
+    W->>T: INSERT observation
+    W->>WF: Start workflow instance
+    W-->>N: 200 OK (<200ms)
+  else Offline
+    N->>N: Queue in sync-engine
+    N-->>W: Sync later
+  end
+
+  rect rgba(163, 124, 255, 0.12)
+    Note right of WF: Async lane — nurse has moved on
+    WF->>W: embed → Turso F32_BLOB
+    WF->>SB: Enqueue 2nd opinion (if low confidence)
+    SB->>R: Pull media
+    SB->>SB: Run larger ONNX model
+    SB->>T: Insert ai_annotations_secondary
+    WF->>WF: Wait for doctor review (up to 72h)
+  end
+
+  D->>W: GET /api/reviews/:id/context
+  W->>T: similarity + Turso join
+  W->>W: Vectorize evidence query
+  W-->>D: Evidence + similar cases + both AI annotations
+  D->>W: POST review (clinician_review JSON)
+  W->>WF: dispatch doctor-review-complete event
+
+  WF->>SB: Enqueue PDF render
+  SB->>R: Write PDF to reports bucket
+  WF->>P: BHASH WhatsApp with signed link
+  P->>W: GET /api/reports/serve/:token
+  W->>R: Stream PDF
+  W-->>P: PDF
+  </div>
+</section>
+
+<!-- =================== CALIBRATION LOOP =================== -->
+<section>
+  <h2>The calibration loop — how screening gets more accurate over time</h2>
+  <p class="lead">Sandbox doesn't speed up screening. It generates the evidence that lets you ship better on-device models. That's the actual accuracy flywheel.</p>
+  <div class="mermaid">
+flowchart LR
+  classDef device fill:#2a2310,stroke:#ffc857,stroke-width:2px,color:#ffe4a6
+  classDef async fill:#20133a,stroke:#a37cff,stroke-width:2px,color:#dcc9ff
+  classDef nightly fill:#0d2a20,stroke:#49d49d,stroke-width:2px,color:#bff0d8
+  classDef hot fill:#2a1420,stroke:#ff6b9a,stroke-width:2px,color:#ffd0e0
+
+  A[📱 Nurse Tier 1 on-device<br/>produces AIAnnotation]:::device
+  B[👩‍⚕️ Doctor label<br/>clinician_review]:::hot
+  C[🛠 Sandbox 2nd opinion<br/>larger ONNX model]:::async
+  D[📊 accuracy_metrics table]:::nightly
+  E[🌙 DuckDB Q1<br/>chip-vs-AI agreement heatmap]:::nightly
+  F[🔬 Model training offline<br/>new ONNX version]:::nightly
+  G[📦 scripts/publish-model.sh<br/>→ R2 + manifest]:::nightly
+  H[📱 model-loader-mobile<br/>pulls new model at boot]:::device
+  I[📱 Next screening<br/>same fast UX, better AI]:::device
+
+  A --> D
+  B --> D
+  C --> D
+  D --> E --> F --> G --> H --> I --> A
+  </div>
+
+  <div class="annot">
+    <div class="card">
+      <h3>Signals in <span class="phase-tag ok">exists</span></h3>
+      <p>You already have chip annotations (nurse-supplied) and clinician_review fields. These are the ground-truth labels.</p>
+    </div>
+    <div class="card async">
+      <h3>Second-opinion signal <span class="phase-tag">Phase 6</span></h3>
+      <p>Adds a third voice: a larger ONNX model running in Sandbox. Agreement / disagreement with Tier 1 is the training signal.</p>
+    </div>
+    <div class="card nightly">
+      <h3>Model publish <span class="phase-tag warn">manual</span></h3>
+      <p>Training itself is offline for now. Phase 6 ships the manifest-based model distribution so new versions reach devices without a Play Store release.</p>
+    </div>
+  </div>
+</section>
+
+<!-- =================== CURRENT STATE =================== -->
+<section>
+  <h2>Where we are today</h2>
+  <p class="lead">Same drawing but only the green boxes exist. Grey boxes are the gap the plan fills.</p>
+  <div class="mermaid">
+flowchart TB
+  classDef done fill:#0d2a20,stroke:#49d49d,stroke-width:2px,color:#bff0d8
+  classDef partial fill:#2a2310,stroke:#ffc857,stroke-width:2px,color:#ffe4a6
+  classDef gap fill:#1a1f33,stroke:#4a5580,stroke-width:1.5px,color:#6e7ba8,stroke-dasharray: 5 5
+
+  subgraph NOW["What works today"]
+    direction LR
+    A1[📱 Tier 1/2 on-device AI<br/>17 head-to-toe + 7 vitals]:::done
+    A2[📱 Offline sync engine]:::done
+    A3[📱 Quality gates per module]:::done
+    A4[⚡ Hono worker · 30 routes<br/>auth · campaigns · observations]:::done
+    A5[💾 Turso + R2 media + KV]:::done
+    A6[👩‍⚕️ Doctor inbox + review]:::done
+    A7[👨‍👩‍👧 Parent portal HTML report]:::done
+    A8[📝 Studies · consents · audit log]:::done
+    A9[🔌 AyuSynk + Welch Allyn]:::done
+  end
+
+  subgraph HALF["Half-wired"]
+    direction LR
+    B1[/api/ai/vision<br/>direct Gemini, no cache/failover/]:::partial
+    B2[Turso F32_BLOB column<br/>defined but commented]:::partial
+    B3[Langfuse secrets bound<br/>no client code]:::partial
+    B4[archive_url on campaigns<br/>reserved, empty]:::partial
+  end
+
+  subgraph GAP["Missing — this plan fills it"]
+    direction LR
+    C1[Embeddings + similarity<br/>Phase 1]:::gap
+    C2[AI Gateway + Langfuse<br/>Phase 2]:::gap
+    C3[Sandbox PDF rendering<br/>Phase 3]:::gap
+    C4[DuckDB + Parquet analytics<br/>Phase 4]:::gap
+    C5[Workflows + Queues<br/>Phase 5]:::gap
+    C6[Sandbox 2nd opinion<br/>Phase 6]:::gap
+    C7[Vectorize evidence RAG<br/>Phase 7]:::gap
+  end
+  </div>
+</section>
+
+<footer>
+  <p><b>SKIDS Screen V3</b> · Edge-stack rollout plan · Phases 0–7 · ~13.5 working days · MotherDuck (Phase 8) deferred</p>
+  <p>Diagram reflects the repo as of planning date. Rerender after each phase ships.</p>
+</footer>
+
+</div>
+
+<script>
+  mermaid.initialize({
+    startOnLoad: true,
+    theme: 'base',
+    themeVariables: {
+      fontFamily: 'Inter, system-ui, sans-serif',
+      background: '#0f1530',
+      primaryColor: '#121a35',
+      primaryTextColor: '#e8ecff',
+      primaryBorderColor: '#7c9cff',
+      lineColor: '#93a0c7',
+      secondaryColor: '#1c1530',
+      tertiaryColor: '#0b1020',
+      clusterBkg: '#0b1020',
+      clusterBorder: '#2a3560',
+      edgeLabelBackground: '#121a35',
+      actorBkg: '#121a35',
+      actorBorder: '#7c9cff',
+      actorTextColor: '#e8ecff',
+      signalColor: '#93a0c7',
+      signalTextColor: '#e8ecff',
+      labelBoxBkgColor: '#121a35',
+      labelBoxBorderColor: '#7c9cff',
+      labelTextColor: '#e8ecff',
+      noteBkgColor: '#1c1530',
+      noteTextColor: '#dcc9ff',
+      noteBorderColor: '#a37cff',
+    },
+    flowchart: { curve: 'basis', padding: 18, nodeSpacing: 40, rankSpacing: 60 },
+    sequence: { mirrorActors: false, boxMargin: 10, messageMargin: 40 },
+  })
+</script>
+</body>
+</html>

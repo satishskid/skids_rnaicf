@@ -1,0 +1,403 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>SKIDS Screen V3 — User & Information Flow</title>
+<link href="https://fonts.googleapis.com/css2?family=DM+Serif+Display&family=Inter:wght@400;500;600;700&family=Plus+Jakarta+Sans:wght@500;600;700&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/mermaid/10.9.1/mermaid.min.js"></script>
+<style>
+  :root {
+    --bg:#0b1020; --panel:#121a35; --panel-2:#0f1530;
+    --ink:#e8ecff; --ink-dim:#93a0c7;
+    --accent:#7c9cff; --accent-2:#a37cff;
+    --nurse:#ffc857; --doctor:#ff6b9a; --parent:#4ecdc4;
+    --admin:#a37cff; --authority:#7c9cff; --research:#49d49d;
+    --border:#1f2a55;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:radial-gradient(ellipse at top,#1a2350 0%,var(--bg) 60%);color:var(--ink);font-family:'Inter',system-ui,sans-serif;line-height:1.55;min-height:100vh}
+  .wrap{max-width:1280px;margin:0 auto;padding:48px 32px 120px}
+  h1{font-family:'DM Serif Display',serif;font-size:52px;margin:0 0 8px;background:linear-gradient(135deg,#fff 0%,var(--accent) 60%,var(--accent-2) 100%);-webkit-background-clip:text;background-clip:text;color:transparent;letter-spacing:-0.02em}
+  .sub{color:var(--ink-dim);font-size:17px;max-width:820px}
+  .sub b{color:var(--ink);font-weight:600}
+  section{background:var(--panel);border:1px solid var(--border);border-radius:20px;padding:36px 40px;margin-top:32px;box-shadow:0 20px 60px rgba(0,0,0,0.35)}
+  section h2{font-family:'Plus Jakarta Sans',sans-serif;font-size:26px;margin:0 0 6px;font-weight:700}
+  section .lead{color:var(--ink-dim);margin:0 0 24px;font-size:15px}
+  .mermaid{background:var(--panel-2);border-radius:12px;padding:24px;overflow-x:auto}
+  .persona-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:16px}
+  .persona{background:var(--panel-2);border:1px solid var(--border);border-left:4px solid var(--accent);border-radius:14px;padding:20px 22px}
+  .persona.nurse{border-left-color:var(--nurse)}
+  .persona.doctor{border-left-color:var(--doctor)}
+  .persona.parent{border-left-color:var(--parent)}
+  .persona.admin{border-left-color:var(--admin)}
+  .persona.authority{border-left-color:var(--authority)}
+  .persona.research{border-left-color:var(--research)}
+  .persona h3{margin:0 0 4px;font-size:16px;font-family:'Plus Jakarta Sans',sans-serif;display:flex;align-items:center;gap:8px}
+  .persona .role{color:var(--ink-dim);font-size:12px;text-transform:uppercase;letter-spacing:0.06em;margin-bottom:14px}
+  .persona ul{margin:0;padding:0;list-style:none}
+  .persona li{color:var(--ink-dim);font-size:13px;padding:3px 0;position:relative;padding-left:16px}
+  .persona li::before{content:'→';position:absolute;left:0;color:var(--accent)}
+  .persona li.write::before{content:'✍';color:var(--nurse)}
+  .persona li.read::before{content:'👁';color:var(--parent)}
+  .persona li.trigger::before{content:'⚡';color:var(--doctor)}
+  table{width:100%;border-collapse:collapse;margin-top:12px;font-size:14px}
+  th,td{padding:10px 12px;text-align:left;border-bottom:1px solid var(--border)}
+  th{color:var(--ink-dim);font-weight:600;font-size:12px;text-transform:uppercase;letter-spacing:0.06em;background:var(--panel-2)}
+  td{color:var(--ink)}
+  td.c{text-align:center;font-size:16px}
+  .w{color:var(--nurse)}
+  .r{color:var(--parent)}
+  .rw{color:var(--accent-2)}
+  .n{color:var(--ink-dim);opacity:0.3}
+  .legend{display:flex;flex-wrap:wrap;gap:10px;margin-top:14px;font-size:13px;color:var(--ink-dim)}
+  .legend span{display:inline-flex;align-items:center;gap:6px}
+  footer{text-align:center;color:var(--ink-dim);font-size:13px;margin-top:48px;padding-top:32px;border-top:1px solid var(--border)}
+  footer b{color:var(--ink)}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header>
+  <h1>User & Information Flow</h1>
+  <p class="sub">Who acts on the SKIDS Screen V3 system, what they produce, what they see, and how a single child's data moves from first screening to research aggregate — with consent gates and DPDP-aligned parent rights throughout.</p>
+</header>
+
+<!-- =================== PERSONAS =================== -->
+<section>
+  <h2>Who uses the system</h2>
+  <p class="lead">Six distinct roles. Each has a separate surface, separate write permissions, and a different view of the same child.</p>
+  <div class="persona-grid">
+    <div class="persona nurse">
+      <h3>📱 Nurse / Field Screener</h3>
+      <div class="role">Expo mobile app · PIN login</div>
+      <ul>
+        <li class="write">Registers child (name, DOB, gender, class, parent phone)</li>
+        <li class="write">Captures observations — photo, video, audio, values, forms</li>
+        <li class="write">Adds annotation chips + quality notes</li>
+        <li class="read">Sees own campaigns + children assigned</li>
+        <li class="read">Sees Tier 1/2 on-device AI suggestions</li>
+        <li class="trigger">Triggers device readiness checks before a campaign</li>
+      </ul>
+    </div>
+    <div class="persona doctor">
+      <h3>👩‍⚕️ Doctor / Reviewer</h3>
+      <div class="role">Web dashboard · Mobile review</div>
+      <ul>
+        <li class="read">Doctor inbox — observations queued for review</li>
+        <li class="read">Tier 1 + Sandbox second-opinion annotations side-by-side</li>
+        <li class="read">Evidence panel + similar past cases (Phase 7)</li>
+        <li class="write">Writes clinician_review JSON (confirm / refute / add dx)</li>
+        <li class="trigger">"Request second opinion" button per observation</li>
+        <li class="trigger">Signs off → triggers report release</li>
+      </ul>
+    </div>
+    <div class="persona parent">
+      <h3>👨‍👩‍👧 Parent</h3>
+      <div class="role">Web portal via QR/WhatsApp link</div>
+      <ul>
+        <li class="read">Views their child's report (HTML now, PDF after Phase 3)</li>
+        <li class="write">Gives / revokes consent per study</li>
+        <li class="write">Can request data export (DPDP right)</li>
+        <li class="trigger">Can request data deletion (DPDP right)</li>
+        <li class="read">Receives BHASH WhatsApp notifications</li>
+      </ul>
+    </div>
+    <div class="persona admin">
+      <h3>🛠 Admin / Org Owner</h3>
+      <div class="role">Web admin pages</div>
+      <ul>
+        <li class="write">Creates campaigns, invites screeners, assigns doctors</li>
+        <li class="write">Manages AI config (failover chain, feature flags)</li>
+        <li class="trigger">Releases reports (toggles campaigns.reports_released)</li>
+        <li class="read">Sees audit log, AI usage, device status</li>
+        <li class="write">Archives campaigns to R2</li>
+      </ul>
+    </div>
+    <div class="persona authority">
+      <h3>🏛 Authority / District</h3>
+      <div class="role">Authority dashboard</div>
+      <ul>
+        <li class="read">Aggregate population health by campaign / age / gender</li>
+        <li class="read">Red-flag prevalence, cohort trends (Phase 4 DuckDB)</li>
+        <li class="read">Screener throughput, SLA compliance</li>
+        <li class="read">No row-level PHI — aggregates only</li>
+      </ul>
+    </div>
+    <div class="persona research">
+      <h3>🔬 Researcher (IRB-approved)</h3>
+      <div class="role">DuckDB local or MotherDuck (deferred)</div>
+      <ul>
+        <li class="read">Queries de-identified, consent-gated study slices</li>
+        <li class="read">Joins observations, annotations, accuracy_metrics</li>
+        <li class="read">Per-study pseudonymous child IDs (HMAC-salted)</li>
+        <li class="write">Cannot write back to production</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<!-- =================== END-TO-END SWIMLANE =================== -->
+<section>
+  <h2>One child's data — from registration to research</h2>
+  <p class="lead">Read top-to-bottom. Each lane is a persona; each box is an action that writes or reads information. Consent gates and review gates are shown as diamonds.</p>
+  <div class="mermaid">
+flowchart TB
+  classDef nurse fill:#2a2310,stroke:#ffc857,stroke-width:2px,color:#ffe4a6
+  classDef doctor fill:#2a1420,stroke:#ff6b9a,stroke-width:2px,color:#ffd0e0
+  classDef parent fill:#0d2a2a,stroke:#4ecdc4,stroke-width:2px,color:#c5f0ec
+  classDef admin fill:#20133a,stroke:#a37cff,stroke-width:2px,color:#dcc9ff
+  classDef authority fill:#0f1f3a,stroke:#7c9cff,stroke-width:2px,color:#c7d4ff
+  classDef research fill:#0d2a20,stroke:#49d49d,stroke-width:2px,color:#bff0d8
+  classDef gate fill:#1a1f33,stroke:#7c9cff,stroke-width:2px,color:#e8ecff
+  classDef data fill:#121a35,stroke:#5a6fa3,stroke-width:1.5px,color:#b8c4e8
+
+  A1[🛠 Admin creates campaign<br/>school · modules · dates]:::admin
+  A2[🛠 Admin assigns nurse + doctor]:::admin
+  A3[📝 campaigns · campaign_assignments]:::data
+
+  N1[📱 Nurse registers child<br/>name · DOB · parent phone · class]:::nurse
+  N2[📝 children table · QR code generated]:::data
+  N3[📱 Parent consent captured on device<br/>screening consent + optional study consent]:::nurse
+  N4[📝 consents table]:::data
+
+  G1{{Consent granted?}}:::gate
+
+  N5[📱 Nurse opens ScreeningScreen<br/>selects child · picks module]:::nurse
+  N6[📱 Capture photo/video/audio/value]:::nurse
+  N7[📱 Quality gate passes → Tier 1/2 on-device AI]:::nurse
+  N8[📱 Nurse confirms chips + saves]:::nurse
+  N9[📝 observations + ai_annotations JSON<br/>+ media_url in R2]:::data
+
+  S1[🌀 Async · Turso embedding F32_BLOB]:::data
+  S2[🌀 Async · if low-confidence<br/>Sandbox 2nd opinion]:::data
+  S3[📝 ai_annotations_secondary<br/>+ agreement_score]:::data
+
+  D1[👩‍⚕️ Doctor opens DoctorInbox]:::doctor
+  D2[👩‍⚕️ Reads evidence + similar cases + both AI tiers]:::doctor
+  D3[👩‍⚕️ Writes clinician_review<br/>confirm · refute · add dx]:::doctor
+  D4[📝 observations.clinician_review<br/>+ accuracy_metrics]:::data
+
+  G2{{All reviews complete?}}:::gate
+
+  AD1[🛠 Admin releases reports<br/>campaigns.reports_released = 1]:::admin
+  AD2[🌀 Queue → Sandbox renders PDF]:::data
+  AD3[📝 R2 reports + report_tokens]:::data
+
+  P1[👨‍👩‍👧 Parent gets BHASH WhatsApp link]:::parent
+  P2[👨‍👩‍👧 Opens portal / downloads PDF]:::parent
+  P3[👨‍👩‍👧 Optional: manage consents · export · delete]:::parent
+
+  AU1[🏛 Authority opens dashboard]:::authority
+  AU2[🏛 Sees aggregate red-flag prevalence<br/>by campaign / age / gender / district]:::authority
+
+  NT1[🌙 Nightly · Turso → Parquet → DuckDB]:::research
+  NT2[🌙 Publishable de-identified views]:::research
+  G3{{Study consent + IRB?}}:::gate
+  R1[🔬 Researcher queries study slice<br/>pseudonymous child IDs]:::research
+
+  A1 --> A2 --> A3 --> N1 --> N2 --> N3 --> N4 --> G1
+  G1 -- yes --> N5
+  G1 -- no --> END1[❌ Screening blocked<br/>flagged in audit_log]:::gate
+  N5 --> N6 --> N7 --> N8 --> N9
+  N9 --> S1 --> S2 --> S3
+  N9 --> D1 --> D2 --> D3 --> D4
+  D4 --> G2
+  G2 -- yes --> AD1 --> AD2 --> AD3 --> P1 --> P2
+  G2 -- no --> D1
+  P2 -.-> P3
+  N9 --> NT1 --> NT2 --> AU1 --> AU2
+  NT2 --> G3
+  G3 -- yes --> R1
+  G3 -- no --> END2[❌ Row excluded from share]:::gate
+  </div>
+  <div class="legend">
+    <span>🛠 Admin</span>
+    <span>📱 Nurse</span>
+    <span>👩‍⚕️ Doctor</span>
+    <span>👨‍👩‍👧 Parent</span>
+    <span>🏛 Authority</span>
+    <span>🔬 Researcher</span>
+    <span>🌀 Async</span>
+    <span>🌙 Nightly</span>
+    <span>📝 Data write</span>
+    <span>◇ Gate</span>
+  </div>
+</section>
+
+<!-- =================== ACCESS MATRIX =================== -->
+<section>
+  <h2>Who reads, who writes — information ownership matrix</h2>
+  <p class="lead">The enforceable access contract. Anything not in this table is a bug or a privacy leak. RBAC lives in Better Auth roles + row-level filters in Hono middleware.</p>
+  <table>
+    <thead>
+      <tr>
+        <th>Information</th>
+        <th>Nurse</th>
+        <th>Doctor</th>
+        <th>Parent</th>
+        <th>Admin</th>
+        <th>Authority</th>
+        <th>Researcher</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr><td>Campaign meta (school, dates)</td>     <td class="c r">👁</td><td class="c r">👁</td><td class="c n">—</td><td class="c rw">✍👁</td><td class="c r">👁</td><td class="c r">👁</td></tr>
+      <tr><td>Child identity (name, DOB, phone)</td>   <td class="c rw">✍👁</td><td class="c r">👁</td><td class="c r">👁 own</td><td class="c r">👁</td><td class="c n">—</td><td class="c n">—</td></tr>
+      <tr><td>Observation record</td>                  <td class="c rw">✍👁</td><td class="c r">👁</td><td class="c r">👁 own<sup>*</sup></td><td class="c r">👁</td><td class="c n">—</td><td class="c r">👁 deident</td></tr>
+      <tr><td>Raw media (photo/video/audio)</td>       <td class="c rw">✍👁</td><td class="c r">👁</td><td class="c r">👁 own<sup>*</sup></td><td class="c r">👁</td><td class="c n">—</td><td class="c n">—</td></tr>
+      <tr><td>Tier 1/2 AI annotations</td>             <td class="c r">👁</td><td class="c r">👁</td><td class="c r">👁 own<sup>*</sup></td><td class="c r">👁</td><td class="c n">—</td><td class="c r">👁 deident</td></tr>
+      <tr><td>Sandbox 2nd-opinion annotations</td>     <td class="c n">—</td><td class="c r">👁</td><td class="c n">—</td><td class="c r">👁</td><td class="c n">—</td><td class="c r">👁 deident</td></tr>
+      <tr><td>Clinician review</td>                    <td class="c n">—</td><td class="c rw">✍👁</td><td class="c r">👁 own<sup>*</sup></td><td class="c r">👁</td><td class="c n">—</td><td class="c r">👁 deident</td></tr>
+      <tr><td>Consent records</td>                     <td class="c r">👁</td><td class="c r">👁</td><td class="c rw">✍👁 own</td><td class="c rw">✍👁</td><td class="c n">—</td><td class="c n">—</td></tr>
+      <tr><td>Report (HTML / PDF)</td>                 <td class="c n">—</td><td class="c r">👁</td><td class="c r">👁 own<sup>*</sup></td><td class="c r">👁</td><td class="c n">—</td><td class="c n">—</td></tr>
+      <tr><td>Aggregate population health</td>         <td class="c n">—</td><td class="c r">👁</td><td class="c n">—</td><td class="c r">👁</td><td class="c r">👁</td><td class="c r">👁</td></tr>
+      <tr><td>Audit log</td>                           <td class="c n">—</td><td class="c n">—</td><td class="c n">—</td><td class="c r">👁</td><td class="c n">—</td><td class="c n">—</td></tr>
+      <tr><td>AI usage / cost ledger</td>              <td class="c n">—</td><td class="c n">—</td><td class="c n">—</td><td class="c r">👁</td><td class="c n">—</td><td class="c n">—</td></tr>
+      <tr><td>Calibration metrics</td>                 <td class="c n">—</td><td class="c r">👁</td><td class="c n">—</td><td class="c r">👁</td><td class="c r">👁</td><td class="c r">👁</td></tr>
+    </tbody>
+  </table>
+  <div class="legend">
+    <span><span class="rw">✍👁</span> read + write</span>
+    <span><span class="r">👁</span> read only</span>
+    <span><span class="n">—</span> no access</span>
+    <span>deident = de-identified only (no names, pseudonymous IDs, age bands)</span>
+    <span><sup>*</sup> own = only this parent's children</span>
+  </div>
+</section>
+
+<!-- =================== CONSENT + RELEASE GATING =================== -->
+<section>
+  <h2>Consent & release gating — what must be true for data to flow</h2>
+  <p class="lead">Three gates control the movement of PHI through the system. All three are enforceable in code, logged in audit_log, and surfaced to the parent via the portal.</p>
+  <div class="mermaid">
+flowchart LR
+  classDef gate fill:#1a1f33,stroke:#7c9cff,stroke-width:2px,color:#e8ecff
+  classDef ok fill:#0d2a20,stroke:#49d49d,stroke-width:2px,color:#bff0d8
+  classDef block fill:#2a1420,stroke:#ff6b9a,stroke-width:2px,color:#ffd0e0
+  classDef data fill:#121a35,stroke:#5a6fa3,stroke-width:1.5px,color:#b8c4e8
+
+  G1{{Gate 1<br/>Screening consent<br/>granted?}}:::gate
+  G2{{Gate 2<br/>All required reviews<br/>complete + admin release?}}:::gate
+  G3{{Gate 3<br/>Study consent +<br/>IRB approval?}}:::gate
+
+  INPUT[Nurse attempts to screen child]:::data
+  A1[✅ Observation flows to Turso + R2]:::ok
+  A2[❌ Blocked · audit_log]:::block
+
+  MID[Doctor completes review]:::data
+  B1[✅ Report rendered + parent notified]:::ok
+  B2[⏸ Held · awaits review + admin release]:::block
+
+  END[Nightly analytics pipeline]:::data
+  C1[✅ Row included in study share<br/>pseudonymized + de-identified]:::ok
+  C2[🔒 Aggregate-only<br/>row-level excluded]:::block
+
+  INPUT --> G1
+  G1 -- yes --> A1
+  G1 -- no --> A2
+  A1 --> MID --> G2
+  G2 -- yes --> B1
+  G2 -- no --> B2 --> MID
+  B1 --> END --> G3
+  G3 -- yes --> C1
+  G3 -- no --> C2
+  </div>
+</section>
+
+<!-- =================== DPDP PARENT RIGHTS =================== -->
+<section>
+  <h2>Parent rights — DPDP Act obligations in data flow</h2>
+  <p class="lead">India's DPDP Act 2023 grants the parent (as the child's Data Principal) specific rights. Each maps to a concrete code path and a visible action in the portal.</p>
+  <div class="mermaid">
+flowchart LR
+  classDef right fill:#0d2a2a,stroke:#4ecdc4,stroke-width:2px,color:#c5f0ec
+  classDef action fill:#20133a,stroke:#a37cff,stroke-width:2px,color:#dcc9ff
+  classDef data fill:#121a35,stroke:#5a6fa3,stroke-width:1.5px,color:#b8c4e8
+
+  R1[Right to Access<br/>see everything stored]:::right
+  R2[Right to Correction<br/>fix wrong data]:::right
+  R3[Right to Erasure<br/>request deletion]:::right
+  R4[Right to Consent<br/>grant/revoke per study]:::right
+  R5[Right to Grievance<br/>raise a concern]:::right
+
+  A1[Parent Portal → Export my data<br/>zip · observations · media · reviews]:::action
+  A2[Parent Portal → Request correction<br/>admin ticket created]:::action
+  A3[Parent Portal → Delete my child<br/>soft delete · 30-day grace · hard delete]:::action
+  A4[Consents page · toggle per study<br/>updates consents table · propagates nightly]:::action
+  A5[Grievance form · logged · SLA 7d]:::action
+
+  D1[📝 Generates zip from R2 + Turso]:::data
+  D2[📝 Writes correction_request · admin queue]:::data
+  D3[📝 tombstone table · R2 lifecycle rule · audit]:::data
+  D4[📝 consents.revoked_at set · next share excludes]:::data
+  D5[📝 grievance table · tracked to closure]:::data
+
+  R1 --> A1 --> D1
+  R2 --> A2 --> D2
+  R3 --> A3 --> D3
+  R4 --> A4 --> D4
+  R5 --> A5 --> D5
+  </div>
+</section>
+
+<!-- =================== INFORMATION LIFECYCLE TIMELINE =================== -->
+<section>
+  <h2>Information lifecycle — a single observation over time</h2>
+  <p class="lead">Same data object, viewed over its lifetime. Who touches it, in what order, across how long.</p>
+  <div class="mermaid">
+timeline
+  title Observation #X lifecycle (days)
+  section Day 0 · Capture
+    09:12 : Nurse captures · on-device quality gate
+    09:12 : Tier 1 ONNX runs · AIAnnotation[] created
+    09:13 : Nurse confirms chips · saves observation
+    09:13 : POST /api/observations · Turso INSERT + Workflow start
+    09:13 : R2 upload of media
+  section Day 0 · Async
+    09:14 : Embedding written to Turso F32_BLOB
+    09:16 : Sandbox 2nd opinion (if low-confidence) → secondary annotation
+    09:16 : accuracy_metrics row created
+  section Day 1 · Review
+    10:30 : Doctor opens DoctorInbox · reads evidence + similar cases
+    10:34 : Doctor writes clinician_review
+    10:34 : Workflow receives doctor-review-complete event
+  section Day 2 · Release
+    18:00 : Admin toggles reports_released = 1
+    18:01 : Queue → Sandbox renders PDF → R2
+    18:02 : BHASH WhatsApp link to parent
+    18:10 : Parent opens signed PDF link
+  section Day 3 · Analytics
+    02:00 : Nightly export → Parquet on R2
+    02:10 : Publishable de-identified view materialized
+    08:00 : Authority sees aggregate tile
+  section Day 7+ · Research
+    Day 7+ : If study-consented, appears in study share
+    Day 90 : Retention review · raw media may transition to R2 cold
+    Year 5 : R2 object-lock release per policy
+  </div>
+</section>
+
+<footer>
+  <p><b>SKIDS Screen V3</b> · User & information flow · aligned to DPDP Act 2023 · Better Auth RBAC · consent-gated research shares</p>
+</footer>
+
+</div>
+<script>
+  mermaid.initialize({
+    startOnLoad:true,theme:'base',
+    themeVariables:{
+      fontFamily:'Inter, system-ui, sans-serif',
+      background:'#0f1530',primaryColor:'#121a35',primaryTextColor:'#e8ecff',
+      primaryBorderColor:'#7c9cff',lineColor:'#93a0c7',secondaryColor:'#1c1530',
+      tertiaryColor:'#0b1020',clusterBkg:'#0b1020',clusterBorder:'#2a3560',
+      edgeLabelBackground:'#121a35',actorBkg:'#121a35',actorBorder:'#7c9cff',
+      actorTextColor:'#e8ecff',signalColor:'#93a0c7',signalTextColor:'#e8ecff',
+      labelBoxBkgColor:'#121a35',labelBoxBorderColor:'#7c9cff',labelTextColor:'#e8ecff',
+      noteBkgColor:'#1c1530',noteTextColor:'#dcc9ff',noteBorderColor:'#a37cff'
+    },
+    flowchart:{curve:'basis',padding:18,nodeSpacing:40,rankSpacing:60}
+  })
+</script>
+</body>
+</html>
