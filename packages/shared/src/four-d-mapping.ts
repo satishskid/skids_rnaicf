@@ -123,14 +123,14 @@ export const FOUR_D_CATEGORY_LABELS: Record<FourDCategory, string> = {
   learning: 'Learning Disabilities',
 }
 
-export const FOUR_D_CATEGORY_COLORS: Record<FourDCategory, { bg: string; text: string; badge: string }> = {
-  defects: { bg: 'bg-red-50', text: 'text-red-700', badge: 'bg-red-100 text-red-800' },
-  delay: { bg: 'bg-orange-50', text: 'text-orange-700', badge: 'bg-orange-100 text-orange-800' },
-  disability: { bg: 'bg-purple-50', text: 'text-purple-700', badge: 'bg-purple-100 text-purple-800' },
-  deficiency: { bg: 'bg-yellow-50', text: 'text-yellow-700', badge: 'bg-yellow-100 text-yellow-800' },
-  behavioral: { bg: 'bg-blue-50', text: 'text-blue-700', badge: 'bg-blue-100 text-blue-800' },
-  immunization: { bg: 'bg-emerald-50', text: 'text-emerald-700', badge: 'bg-emerald-100 text-emerald-800' },
-  learning: { bg: 'bg-indigo-50', text: 'text-indigo-700', badge: 'bg-indigo-100 text-indigo-800' },
+export const FOUR_D_CATEGORY_COLORS: Record<FourDCategory, { bg: string; text: string; badge: string; border: string }> = {
+  defects: { bg: 'bg-red-50', text: 'text-red-700', badge: 'bg-red-100 text-red-800', border: 'border-red-200' },
+  delay: { bg: 'bg-orange-50', text: 'text-orange-700', badge: 'bg-orange-100 text-orange-800', border: 'border-orange-200' },
+  disability: { bg: 'bg-purple-50', text: 'text-purple-700', badge: 'bg-purple-100 text-purple-800', border: 'border-purple-200' },
+  deficiency: { bg: 'bg-yellow-50', text: 'text-yellow-700', badge: 'bg-yellow-100 text-yellow-800', border: 'border-yellow-200' },
+  behavioral: { bg: 'bg-blue-50', text: 'text-blue-700', badge: 'bg-blue-100 text-blue-800', border: 'border-blue-200' },
+  immunization: { bg: 'bg-emerald-50', text: 'text-emerald-700', badge: 'bg-emerald-100 text-emerald-800', border: 'border-emerald-200' },
+  learning: { bg: 'bg-indigo-50', text: 'text-indigo-700', badge: 'bg-indigo-100 text-indigo-800', border: 'border-indigo-200' },
 }
 
 const CATEGORY_ORDER: FourDCategory[] = ['defects', 'delay', 'disability', 'deficiency', 'behavioral', 'immunization', 'learning']
