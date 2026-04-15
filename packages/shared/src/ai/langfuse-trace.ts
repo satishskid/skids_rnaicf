@@ -193,7 +193,7 @@ function randomId(prefix: string): string {
 }
 
 function base64(s: string): string {
-  if (typeof btoa === 'function') return btoa(s)
-  // Node / CF compat fallback
-  return Buffer.from(s, 'utf8').toString('base64')
+  // Workers and Node 18+ both expose btoa globally. Dropping the Buffer
+  // fallback removes the @types/node dependency from this package.
+  return btoa(s)
 }
