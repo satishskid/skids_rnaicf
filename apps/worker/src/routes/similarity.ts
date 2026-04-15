@@ -26,7 +26,7 @@ similarityRoutes.post('/observations', async (c) => {
 
   const db = c.get('db')
   const ai = c.env.AI
-  if (\!ai) return c.json({ error: 'Workers AI binding missing' }, 500)
+  if (!ai) return c.json({ error: 'Workers AI binding missing' }, 500)
 
   const body = await c.req.json<{
     observationId?: string
@@ -47,20 +47,20 @@ similarityRoutes.post('/observations', async (c) => {
       })
       const row = r.rows[0] as Record<string, unknown> | undefined
       const blob = row?.embedding as ArrayBuffer | Uint8Array | null | undefined
-      if (\!blob) return c.json({ error: 'no embedding for observation' }, 404)
+      if (!blob) return c.json({ error: 'no embedding for observation' }, 404)
       const ab = blob instanceof ArrayBuffer ? blob : (blob as Uint8Array).buffer.slice(
         (blob as Uint8Array).byteOffset,
         (blob as Uint8Array).byteOffset + (blob as Uint8Array).byteLength
       )
       queryVec = Array.from(new Float32Array(ab))
-      if (queryVec.length \!== 384) return c.json({ error: 'embedding malformed' }, 500)
+      if (queryVec.length !== 384) return c.json({ error: 'embedding malformed' }, 500)
     } else if (body.freeText) {
       const text = String(body.freeText).slice(0, 2000)
       const out = (await ai.run('@cf/baai/bge-small-en-v1.5', { text: [text] })) as {
         data: number[][]
       }
       queryVec = out.data[0]
-      if (\!queryVec || queryVec.length \!== 384) {
+      if (!queryVec || queryVec.length !== 384) {
         return c.json({ error: 'embedding failed' }, 500)
       }
     } else {
@@ -91,7 +91,7 @@ similarityRoutes.post('/observations', async (c) => {
            vector_distance_cos(embedding, vector32(?)) AS distance
     FROM observations
     WHERE embedding IS NOT NULL${whereExtra}
-      AND (id \!= ? OR ? IS NULL)
+      AND (id != ? OR ? IS NULL)
     ORDER BY distance ASC
     LIMIT ?
   `

@@ -48,7 +48,7 @@ export function buildEmbeddingText(obs: EmbeddingInput): string {
 }
 
 function safeJsonArray(s?: string | null): Array<Record<string, unknown>> {
-  if (\!s) return []
+  if (!s) return []
   try {
     const v = JSON.parse(s)
     return Array.isArray(v) ? v : []

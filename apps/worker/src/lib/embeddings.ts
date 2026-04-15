@@ -49,7 +49,7 @@ export async function embedAndStore(
       text: [text],
     })) as { data: number[][] }
     const vec = out.data[0]
-    if (\!vec || vec.length \!== 384) {
+    if (!vec || vec.length !== 384) {
       return { id: obs.id, status: 'error', error: `bad embedding length: ${vec?.length}` }
     }
 
