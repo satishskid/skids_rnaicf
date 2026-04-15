@@ -6,7 +6,7 @@ Single source of truth for phase progress. Every phase spec requires this file t
 |---|---|---|---|---|---|
 | 00 | `specs/00-preflight.md` | DONE | planner-agent | #2 | 2026-04-15 |
 | 01 | `specs/01-turso-vectors.md` | DONE | planner-agent | #3 | 2026-04-15 |
-| 02 | `specs/02-ai-gateway-langfuse.md` | IN_REVIEW | claude-code | pending-push | — |
+| 02 | `specs/02-ai-gateway-langfuse.md` | DONE | claude-code | #4 | 2026-04-15 |
 | 02a | `specs/02a-liquid-ai-on-device.md` | TODO | planner-agent | — | — |
 | 03 | `specs/03-sandbox-pdf-reports.md` | TODO | — | — | — |
 | 04 | `specs/04-duckdb-analytics.md` | TODO | — | — | — |
@@ -15,7 +15,15 @@ Single source of truth for phase progress. Every phase spec requires this file t
 | 07 | `specs/07-vectorize-evidence-rag.md` | TODO | — | — | — |
 | 08 | `specs/08-motherduck-research.md` | DEFERRED | — | — | — |
 
-Legend: `TODO` → `IN_PROGRESS` → `IN_REVIEW` → `DONE` (or `DEFERRED` / `BLOCKED`).
+Legend: `TODO` → `IN_PROGRESS` → `IN_REVIEW` → `DONE` (or `DEFERRED` / `BLOCKED` / `PARKED`).
+
+## Parked (backlog, not on current critical path)
+
+| Task | Reason parked | Unblocks / depends |
+|---|---|---|
+| `fix/worker-auth-typecheck` | 5× TS2769 in `apps/worker/src/auth.ts` + 1× TS2339 in `apps/mobile/src/screens/SettingsScreen.tsx:60` (`AuthUser.token`). Needs focused review of better-auth API surface — not mechanical. Carved out of PR #6. | Fully green preflight; future auth changes |
+| Phase 04 — DuckDB analytics | Spec exists (`specs/04-duckdb-analytics.md`), zero code. Legacy TS analytics surface is being patched for typecheck alignment only (PR after #6); scalability / SQL-native queries deferred until this phase runs. | Population health queries, research share, cost ledger dashboards |
+| `fix/web-typecheck` | ~62 residual errors in ParentPortal / ParentReport / FleetReadinessTab / case-only filename drift. Surfaced once PR #6 unblocked deeper tsc. | Fully green preflight |
 
 ## Update protocol
 
