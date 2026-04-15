@@ -72,15 +72,18 @@ export interface Child {
   name: string;
   dob: string;
   gender: 'male' | 'female';
-  location: string;
+  // Optional — may be absent on rows materialized from DB partial selects.
+  location?: string;
   photoUrl?: string;
   admissionNumber?: string;
   class?: string;
   section?: string;
   academicYear?: string;
   schoolName?: string;
-  createdAt: string;
-  updatedAt: string;
+  // DB-row companion (export / FHIR / campaign-progress routes).
+  campaignCode?: string;
+  createdAt?: string;
+  updatedAt?: string;
 }
 
 export interface ExamSession {
