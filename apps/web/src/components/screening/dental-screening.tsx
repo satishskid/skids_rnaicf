@@ -228,3 +228,5 @@ export function DentalScreening({
     </div>
   )
 }
+
+export default DentalScreening

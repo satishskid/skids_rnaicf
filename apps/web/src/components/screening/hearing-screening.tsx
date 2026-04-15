@@ -431,3 +431,5 @@ export function HearingScreening({
     </div>
   )
 }
+
+export default HearingScreening

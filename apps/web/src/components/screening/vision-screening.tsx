@@ -1254,3 +1254,5 @@ export function VisionScreening({
     </div>
   )
 }
+
+export default VisionScreening

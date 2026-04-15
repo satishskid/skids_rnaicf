@@ -161,3 +161,5 @@ export function GeneralAppearanceScreening({
     </div>
   )
 }
+
+export default GeneralAppearanceScreening

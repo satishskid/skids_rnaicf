@@ -1201,3 +1201,5 @@ export function CardiacScreening({
     </div>
   )
 }
+
+export default CardiacScreening

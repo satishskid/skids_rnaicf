@@ -262,3 +262,5 @@ export function SkinScreening({
     </div>
   )
 }
+
+export default SkinScreening

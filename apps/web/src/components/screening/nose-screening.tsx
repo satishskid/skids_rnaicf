@@ -171,3 +171,5 @@ export function NoseScreening({
     </div>
   )
 }
+
+export default NoseScreening

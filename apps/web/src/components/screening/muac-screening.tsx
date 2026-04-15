@@ -86,3 +86,5 @@ export function MUACScreening({
     />
   )
 }
+
+export default MUACScreening

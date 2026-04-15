@@ -263,3 +263,5 @@ export function CustomScreening({
 
   return <p className="text-sm text-gray-500">Unknown capture type: {moduleDefinition.captureType}</p>
 }
+
+export default CustomScreening

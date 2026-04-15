@@ -155,3 +155,5 @@ export function BehavioralScreening({ onResult, childAge }: BehavioralScreeningP
     </div>
   )
 }
+
+export default BehavioralScreening

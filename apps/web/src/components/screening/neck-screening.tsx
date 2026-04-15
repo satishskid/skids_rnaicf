@@ -130,3 +130,5 @@ export function NeckScreening({
     </div>
   )
 }
+
+export default NeckScreening

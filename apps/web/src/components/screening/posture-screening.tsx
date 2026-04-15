@@ -154,3 +154,5 @@ export function PostureScreening({
     </div>
   )
 }
+
+export default PostureScreening

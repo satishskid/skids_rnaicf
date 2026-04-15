@@ -310,3 +310,5 @@ export function NutritionIntakeScreening({
     </Card>
   )
 }
+
+export default NutritionIntakeScreening

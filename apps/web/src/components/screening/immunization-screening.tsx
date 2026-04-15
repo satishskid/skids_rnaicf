@@ -362,3 +362,5 @@ export function ImmunizationScreening({
     </div>
   )
 }
+
+export default ImmunizationScreening

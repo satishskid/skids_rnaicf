@@ -58,3 +58,5 @@ export function SpO2Screening({
     />
   )
 }
+
+export default SpO2Screening

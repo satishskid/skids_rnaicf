@@ -342,3 +342,5 @@ function RespiratoryScreening({
 }
 
 export { RespiratoryScreening }
+
+export default RespiratoryScreening

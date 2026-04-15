@@ -273,3 +273,5 @@ export function BPScreening({
     </div>
   )
 }
+
+export default BPScreening

@@ -166,3 +166,5 @@ export function ThroatScreening({
     </div>
   )
 }
+
+export default ThroatScreening

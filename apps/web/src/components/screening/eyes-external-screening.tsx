@@ -173,3 +173,5 @@ export function EyesExternalScreening({
     </div>
   )
 }
+
+export default EyesExternalScreening
