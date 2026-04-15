@@ -32,15 +32,10 @@ export interface ModuleProgress {
   percentage: number
 }
 
-export type ChildScreeningStatus =
-  | 'to_screen'      // Enrolled, no observations
-  | 'absent'         // Marked absent
-  | 'in_progress'    // Some modules done, not all
-  | 'screened'       // All enabled modules done
-  | 'under_review'   // Has observations, awaiting review
-  | 'complete'       // All reviewed, no follow-ups
-  | 'retake'         // Doctor flagged for re-screening
-  | 'referred'       // Doctor referred
+// Canonical definition lives in ./types; re-exported here for source-compat
+// with existing consumers that imported it from this module.
+export type { ChildScreeningStatus } from './types'
+import type { ChildScreeningStatus } from './types'
 
 export interface ChildProgress {
   childId: string
