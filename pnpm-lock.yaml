@@ -244,6 +244,9 @@ importers:
       '@skids/db':
         specifier: workspace:*
         version: link:../../packages/db
+      '@skids/pdf-templates':
+        specifier: workspace:*
+        version: link:../../packages/pdf-templates
       '@skids/shared':
         specifier: workspace:*
         version: link:../../packages/shared

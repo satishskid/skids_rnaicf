@@ -396,11 +396,16 @@ CREATE TABLE IF NOT EXISTS report_tokens (
   expires_at TEXT NOT NULL,
   used_at TEXT,
   revoked_at TEXT,
-  access_count INTEGER NOT NULL DEFAULT 0
+  access_count INTEGER NOT NULL DEFAULT 0,
+  -- Phase 03 — added by migrations/0003a_report_tokens_phase03_extras.sql
+  report_id TEXT,
+  report_r2_key TEXT NOT NULL DEFAULT '',
+  rate_limit INTEGER NOT NULL DEFAULT 60
 );
 CREATE INDEX IF NOT EXISTS idx_report_tokens_child ON report_tokens(child_id);
 CREATE INDEX IF NOT EXISTS idx_report_tokens_campaign ON report_tokens(campaign_code);
 CREATE INDEX IF NOT EXISTS idx_report_tokens_expiry ON report_tokens(expires_at);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_report_tokens_report_id ON report_tokens(report_id);
 
 CREATE TABLE IF NOT EXISTS report_renders (
   cache_key TEXT PRIMARY KEY,
