@@ -12,7 +12,8 @@
     "dev": "wrangler dev",
     "deploy": "wrangler deploy",
     "pretypecheck": "tsc --build ../../packages/db ../../packages/shared",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test": "tsx --test test/**/*.test.ts"
   },
   "dependencies": {
     "@better-auth/infra": "^0.1.8",
@@ -26,6 +27,7 @@
   },
   "devDependencies": {
     "@cloudflare/workers-types": "^4.20250306.0",
+    "tsx": "^4.19.0",
     "typescript": "^5.8.0",
     "wrangler": "^4.29.0"
   }

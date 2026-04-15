@@ -1,0 +1,22 @@
+{
+  "name": "@skids/liquid-ai",
+  "version": "0.1.0",
+  "private": true,
+  "description": "On-device Liquid AI (LFM2.5-VL-450M) loader, capability probe, schema validator, and HITL outcome types. Web track active; mobile track deferred per Phase 02a-mobile.",
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "tsx --test test/**/*.test.ts src/**/*.test.ts"
+  },
+  "dependencies": {
+    "@mlc-ai/web-llm": "0.2.82",
+    "@skids/shared": "workspace:*",
+    "zod": "^3.24.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "typescript": "^5.8.0",
+    "tsx": "^4.19.0"
+  }
+}

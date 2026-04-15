@@ -33,3 +33,9 @@ bucket_name = "skids-media"
 # Cloudflare Workers AI (free, no API key needed)
 [ai]
 binding = "AI"
+
+# Phase 02a
+[[r2_buckets]]
+binding = "R2_MODELS_BUCKET"
+bucket_name = "skids-models"
+
