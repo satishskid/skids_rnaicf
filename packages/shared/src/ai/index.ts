@@ -21,3 +21,6 @@ export * from './langfuse-trace'
 
 // Phase 02a-web — Zod function-call schemas for on-device Liquid AI module suggestions
 export * from './module-schemas'
+
+// Phase 02a-web — pinned on-device model manifest (shared by liquid-ai client + worker route)
+export * from './model-manifest'

@@ -34,6 +34,7 @@ import { deviceStatusRoutes } from './routes/device-status'
 import { auditLogRoutes } from './routes/audit-log'
 import { similarityRoutes } from './routes/similarity'
 import { adminEmbeddingsRoutes } from './routes/admin-embeddings'
+import { modelsRoutes } from './routes/models'
 import { createTursoClient } from '@skids/db'
 import { createAuth } from './auth'
 import { authMiddleware, requireRole } from './middleware/auth'
@@ -72,6 +73,8 @@ export type Bindings = {
   FEATURE_TURSO_VECTORS?: string
   // Phase 2 — AI Gateway feature flag (default ON; set to '0' or 'false' to bypass gateway)
   FEATURE_AI_GATEWAY?: string
+  // Phase 02a — on-device Liquid AI weight shards (R2 bucket `skids-models`)
+  R2_MODELS_BUCKET: R2Bucket
 }
 
 // Variables set per-request
@@ -284,6 +287,11 @@ app.use('/api/audit-log/*', authMiddleware)
 app.use('/api/audit-log', requireRole('admin'))
 app.use('/api/audit-log/*', requireRole('admin'))
 app.route('/api/audit-log', auditLogRoutes)
+
+// Phase 02a — on-device Liquid AI weight shards, same-origin from R2 (nurse + doctor).
+app.use('/api/models', authMiddleware)
+app.use('/api/models/*', authMiddleware)
+app.route('/api/models', modelsRoutes)
 
 // Root
 app.get('/', (c) => {
