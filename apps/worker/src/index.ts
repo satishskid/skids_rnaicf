@@ -32,6 +32,8 @@ import { studyRoutes } from './routes/studies'
 import { cohortRoutes } from './routes/cohorts'
 import { deviceStatusRoutes } from './routes/device-status'
 import { auditLogRoutes } from './routes/audit-log'
+import { similarityRoutes } from './routes/similarity'
+import { adminEmbeddingsRoutes } from './routes/admin-embeddings'
 import { createTursoClient } from '@skids/db'
 import { createAuth } from './auth'
 import { authMiddleware, requireRole } from './middleware/auth'
@@ -59,6 +61,8 @@ export type Bindings = {
   AYUSYNC_WEBHOOK_SECRET: string
   AI: Ai                  // Cloudflare Workers AI (free, no API key needed)
   GEMINI_API_KEY: string  // Optional: Gemini Flash as additional provider
+  // Phase 1 — Turso vectors feature flag (default ON; set to '0' or 'false' to disable)
+  FEATURE_TURSO_VECTORS?: string
 }
 
 // Variables set per-request
@@ -132,6 +136,11 @@ app.use('/api/reviews/*', authMiddleware)
 app.route('/api/campaigns', campaignRoutes)
 app.route('/api/children', childrenRoutes)
 app.route('/api/observations', observationRoutes)
+
+// Similarity search (Phase 1) — requires auth
+app.use('/api/similarity', authMiddleware)
+app.use('/api/similarity/*', authMiddleware)
+app.route('/api/similarity', similarityRoutes)
 app.route('/api/reviews', reviewRoutes)
 
 // Admin routes — require admin role
@@ -140,6 +149,9 @@ app.use('/api/admin/*', authMiddleware)
 app.use('/api/admin', requireRole('admin'))
 app.use('/api/admin/*', requireRole('admin'))
 app.route('/api/admin', adminRoutes)
+
+// Phase 1 — admin embedding backfill (admin-only via requireRole above)
+app.route('/api/admin', adminEmbeddingsRoutes)
 
 // Campaign assignments — admin/ops_manager only (authority scoping)
 app.use('/api/campaign-assignments', authMiddleware)
