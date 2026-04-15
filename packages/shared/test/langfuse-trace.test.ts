@@ -74,6 +74,19 @@ test('PHI payload stays under 2kB even with 100k base64 image', async () => {
   assert.match(bodyStr, /<child>/)
 })
 
+test('redactString: long clinical prose passes through unchanged', () => {
+  // 5000+ char realistic model output, lots of spaces + punctuation.
+  // Must NOT trigger the base64 regex (which requires 500+ consecutive
+  // [A-Za-z0-9+/] with no whitespace or punctuation).
+  const sentence =
+    'The observation notes mild conjunctival injection on the lateral aspect of the right eye, ' +
+    'with no discharge, no photophobia, and no visual-acuity change on confrontation testing. '
+  const prose = sentence.repeat(30) // ~5400 chars
+  assert.ok(prose.length > 5000)
+  const out = redactString(prose)
+  assert.equal(out, prose, 'clinical prose must pass through unchanged')
+})
+
 test('Langfuse.ingest: never throws on network failure', async () => {
   const lf = new Langfuse({
     publicKey: 'pub',
