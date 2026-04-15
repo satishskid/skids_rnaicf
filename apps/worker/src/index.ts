@@ -61,8 +61,16 @@ export type Bindings = {
   AYUSYNC_WEBHOOK_SECRET: string
   AI: Ai                  // Cloudflare Workers AI (free, no API key needed)
   GEMINI_API_KEY: string  // Optional: Gemini Flash as additional provider
+  // Phase 2 — Cloudflare AI Gateway + Langfuse
+  AI_GATEWAY_ACCOUNT_ID: string
+  AI_GATEWAY_ID: string
+  // Optional provider API keys consumed by the Gateway (set via wrangler secret put)
+  ANTHROPIC_API_KEY?: string
+  GROQ_API_KEY?: string
   // Phase 1 — Turso vectors feature flag (default ON; set to '0' or 'false' to disable)
   FEATURE_TURSO_VECTORS?: string
+  // Phase 2 — AI Gateway feature flag (default ON; set to '0' or 'false' to bypass gateway)
+  FEATURE_AI_GATEWAY?: string
 }
 
 // Variables set per-request
