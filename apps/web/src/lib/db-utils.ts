@@ -8,7 +8,21 @@
  */
 
 import Dexie, { type Table } from 'dexie'
-import { Child, ExamSession, Observation, AppSettings, DEFAULT_SETTINGS } from '@skids/shared'
+import { Child, ExamSession, Observation } from '@skids/shared'
+
+// Local settings shape — used only for the legacy export manifest; v3 keeps
+// these values in localStorage rather than in @skids/shared.
+export interface AppSettings {
+  schoolName: string
+  nurseName: string
+  academicYear: string
+}
+
+export const DEFAULT_SETTINGS: AppSettings = {
+  schoolName: '',
+  nurseName: '',
+  academicYear: '',
+}
 
 // ── Sync state types ────────────────────────────────
 
