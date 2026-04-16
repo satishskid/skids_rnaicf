@@ -163,7 +163,7 @@ export function AnnotationChips({
             chipSeverities={chipSeverities}
             availableChipIds={chips.map(c => c.id)}
             mode="nurse"
-            orgConfig={orgConfig}
+            llmConfig={orgConfig?.llmConfig}
             onSuggestChips={onAiSuggestChips}
             onAnalysisComplete={onAiAnalysisComplete}
           />

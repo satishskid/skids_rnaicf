@@ -35,7 +35,7 @@ export function MChatScreening({ onResult, childAge }: MChatScreeningProps) {
   }
 
   const handleAnswer = (answer: 'yes' | 'no') => {
-    const mchatAnswer: MChatAnswer = { itemId: currentItem.id, response: answer }
+    const mchatAnswer: MChatAnswer = { itemId: currentItem.id, response: answer === 'yes' }
     setAnswers(prev => ({ ...prev, [currentItem.id]: mchatAnswer }))
 
     // Auto-advance to next unanswered or stay if last
@@ -59,13 +59,15 @@ export function MChatScreening({ onResult, childAge }: MChatScreeningProps) {
       : result.risk === 'medium' ? 'Medium Risk — Follow-Up Needed'
       : 'High Risk — Refer Immediately'
 
+    const domainSummary = (d: { total: number; failed: number }) => `${d.failed}/${d.total}`
+
     onResult({
       classification,
       confidence: 0.90,
       summary: `[M-CHAT-R/F] Score: ${result.totalScore}/20. Risk: ${result.risk.toUpperCase()}. ` +
-        `Critical items failed: ${result.criticalFailed}. ` +
-        `Domains — Social: ${result.domainScores.social}, Communication: ${result.domainScores.communication}, ` +
-        `Behavior: ${result.domainScores.behavior}, Sensory: ${result.domainScores.sensory}. ` +
+        `Critical items failed: ${result.criticalFailedItems.length}. ` +
+        `Domains (failed/total) — Social: ${domainSummary(result.domainScores.social)}, Communication: ${domainSummary(result.domainScores.communication)}, ` +
+        `Behavior: ${domainSummary(result.domainScores.behavior)}, Sensory: ${domainSummary(result.domainScores.sensory)}. ` +
         (result.risk === 'high' ? 'Immediate referral for diagnostic evaluation recommended.' :
          result.risk === 'medium' ? 'Administer M-CHAT-R/F Follow-Up interview.' :
          'No follow-up needed at this time.'),
@@ -85,13 +87,13 @@ export function MChatScreening({ onResult, childAge }: MChatScreeningProps) {
             {result.risk.toUpperCase()} RISK
           </Badge>
           <div className="grid grid-cols-2 gap-2 text-sm">
-            <div>Social: {result.domainScores.social}</div>
-            <div>Communication: {result.domainScores.communication}</div>
-            <div>Behavior: {result.domainScores.behavior}</div>
-            <div>Sensory: {result.domainScores.sensory}</div>
+            <div>Social: {result.domainScores.social.failed}/{result.domainScores.social.total}</div>
+            <div>Communication: {result.domainScores.communication.failed}/{result.domainScores.communication.total}</div>
+            <div>Behavior: {result.domainScores.behavior.failed}/{result.domainScores.behavior.total}</div>
+            <div>Sensory: {result.domainScores.sensory.failed}/{result.domainScores.sensory.total}</div>
           </div>
-          {result.criticalFailed > 0 && (
-            <p className="text-sm text-red-600">Critical items failed: {result.criticalFailed}</p>
+          {result.criticalFailedItems.length > 0 && (
+            <p className="text-sm text-red-600">Critical items failed: {result.criticalFailedItems.length}</p>
           )}
         </CardContent>
       </Card>
@@ -133,7 +135,7 @@ export function MChatScreening({ onResult, childAge }: MChatScreeningProps) {
           {/* Answer indicator */}
           {answers[currentItem.id] && (
             <p className="text-xs text-muted-foreground">
-              Current answer: <strong>{answers[currentItem.id].response.toUpperCase()}</strong> (tap to change)
+              Current answer: <strong>{answers[currentItem.id].response ? 'YES' : 'NO'}</strong> (tap to change)
             </p>
           )}
 
@@ -141,7 +143,7 @@ export function MChatScreening({ onResult, childAge }: MChatScreeningProps) {
           <div className="grid grid-cols-2 gap-4">
             <Button
               size="lg"
-              variant={answers[currentItem.id]?.response === 'yes' ? 'default' : 'outline'}
+              variant={answers[currentItem.id]?.response === true ? 'default' : 'outline'}
               className="h-16 text-lg"
               onClick={() => handleAnswer('yes')}
             >
@@ -149,7 +151,7 @@ export function MChatScreening({ onResult, childAge }: MChatScreeningProps) {
             </Button>
             <Button
               size="lg"
-              variant={answers[currentItem.id]?.response === 'no' ? 'default' : 'outline'}
+              variant={answers[currentItem.id]?.response === false ? 'default' : 'outline'}
               className="h-16 text-lg"
               onClick={() => handleAnswer('no')}
             >
