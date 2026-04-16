@@ -1,0 +1,28 @@
+name = "skids-analytics"
+main = "src/index.ts"
+compatibility_date = "2025-03-08"
+compatibility_flags = ["nodejs_compat"]
+account_id = "9f4998a66a5d7bd7a230d0222544fbe6"
+
+[vars]
+ENVIRONMENT = "production"
+# Cadence: 02:00 IST == 20:30 UTC. Overridable via FEATURE_ANALYTICS_CRON kill switch
+# in the scheduled handler (skip on false).
+ANALYTICS_R2_PREFIX = "v1"
+ANALYTICS_PUBLISHABLE_PREFIX = "publishable"
+FEATURE_ANALYTICS_CRON = "0"
+
+# Read-only Turso access. Never use the write token here.
+#   wrangler secret put TURSO_READ_URL
+#   wrangler secret put TURSO_READ_AUTH_TOKEN
+#
+# For the publishable-views step we shell out to DuckDB in a companion job (see
+# apps/analytics-worker/src/publishable.ts for the contract); this worker only
+# handles the raw Parquet export + the /run query proxy.
+
+[triggers]
+crons = ["30 20 * * *"]
+
+[[r2_buckets]]
+binding = "ANALYTICS_R2"
+bucket_name = "skids-analytics"

@@ -40,6 +40,7 @@ import { similarityRoutes } from './routes/similarity'
 import { adminEmbeddingsRoutes } from './routes/admin-embeddings'
 import { modelsRoutes } from './routes/models'
 import { onDeviceAiRoutes } from './routes/on-device-ai'
+import { analyticsRoutes } from './routes/analytics'
 import { createTursoClient } from '@skids/db'
 import { createAuth } from './auth'
 import { authMiddleware, requireRole } from './middleware/auth'
@@ -85,6 +86,10 @@ export type Bindings = {
   REPORT_SIGNING_KEY: string
   // Phase 03 — cron pre-warm kill switch ('1' = enabled). Default off.
   FEATURE_REPORT_PREWARM?: string
+  // Phase 04 — DuckDB analytics. Service binding to @skids/analytics-worker.
+  ANALYTICS_SVC?: Fetcher
+  // '1' enables /api/analytics/run. Default off; flip via wrangler.toml.
+  FEATURE_DUCKDB_ANALYTICS?: string
 }
 
 // Variables set per-request
@@ -315,6 +320,14 @@ app.route('/api/models', modelsRoutes)
 app.use('/api/on-device-ai', authMiddleware)
 app.use('/api/on-device-ai/*', authMiddleware)
 app.route('/api/on-device-ai', onDeviceAiRoutes)
+
+// Phase 04 — DuckDB analytics canonical-query proxy.
+// Route itself checks FEATURE_DUCKDB_ANALYTICS + ANALYTICS_SVC presence.
+// Any authenticated user may read allow-listed aggregates (they're
+// already de-identified); role check stays at auth middleware layer.
+app.use('/api/analytics', authMiddleware)
+app.use('/api/analytics/*', authMiddleware)
+app.route('/api/analytics', analyticsRoutes)
 
 // Root
 app.get('/', (c) => {

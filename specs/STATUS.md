@@ -10,7 +10,7 @@ Single source of truth for phase progress. Every phase spec requires this file t
 | 02a-web | `specs/decisions/2026-04-15-phase-02a-web-liquid-ai-plan.md` | DONE | claude-code | PR #8 | 2026-04-15 |
 | 02a-mobile | `specs/decisions/2026-04-15-phase-02a-mobile-deferred.md` | DEFERRED | — | — | — |
 | 03 | `specs/03-sandbox-pdf-reports.md` | DONE | claude-code | PR #9 | 2026-04-15 |
-| 04 | `specs/04-duckdb-analytics.md` | TODO | — | — | — |
+| 04 | `specs/04-duckdb-analytics.md` | DONE | claude-code | PR #F | 2026-04-16 |
 | 05 | `specs/05-workflows-queues.md` | TODO | — | — | — |
 | 06 | `specs/06-sandbox-second-opinion.md` | TODO | — | — | — |
 | 07 | `specs/07-vectorize-evidence-rag.md` | TODO | — | — | — |
@@ -22,9 +22,10 @@ Legend: `TODO` → `IN_PROGRESS` → `IN_REVIEW` → `DONE` (or `DEFERRED` / `BL
 
 | Task | Reason parked | Unblocks / depends |
 |---|---|---|
-| `fix/worker-auth-typecheck` | 5× TS2769 in `apps/worker/src/auth.ts` + 1× TS2339 in `apps/mobile/src/screens/SettingsScreen.tsx:60` (`AuthUser.token`). Needs focused review of better-auth API surface — not mechanical. Carved out of PR #6. | Fully green preflight; future auth changes |
-| Phase 04 — DuckDB analytics | Spec exists (`specs/04-duckdb-analytics.md`), zero code. Legacy TS analytics surface is being patched for typecheck alignment only (PR after #6); scalability / SQL-native queries deferred until this phase runs. | Population health queries, research share, cost ledger dashboards |
-| `fix/web-typecheck` | ~62 residual errors in ParentPortal / ParentReport / FleetReadinessTab / case-only filename drift. Surfaced once PR #6 unblocked deeper tsc. | Fully green preflight |
+| Typed `apiCall<T>` in `AuthContext` | Drop `unknown`-casts in `ConsentManagement` / `InstrumentBuilder` / `ParentPortal`. Mechanical, deferred for a focused sweep. | Ergonomics only — no runtime gain. |
+| `AuthUser.token` / `CampaignRow` / `ObservationRow` index signatures | Currently typed as `any` in a handful of places. Would let us drop more casts across web. | Ergonomics only. |
+| `behavioral-assessment.ts` fate | Web has an orphaned 668-line stub; mobile has the real impl. Decide: port up or delete. | Dead-code purge or feature parity. |
+| MODEL_MANIFEST SHA-256 pinning (Phase 02a) | Liquid AI LFM2.5-VL-450M weights aren't SHA-pinned in `model-manifest.ts`. Low risk pre-flag-on, must land before we enable on-device AI for nurses. | Phase 02a-mobile un-deferral. |
 
 ## Update protocol
 
@@ -55,3 +56,6 @@ Pending: human to provision Langfuse secrets + GROQ_API_KEY + CF Gateway slug + 
 
 ### Phase 02a — 2026-04-15 (planned)
 On-device Liquid AI LFM2.5-VL-450M for both nurse and doctor apps. Zero PHI egress. Function calling + bounding boxes per screening module. Full design in `specs/02a-liquid-ai-on-device.md`; TODO until Phase 02 merges.
+
+### Phase 04 — 2026-04-16 (DONE)
+Analytics worker `apps/analytics-worker/` on a nightly cron (02:00 IST / 20:30 UTC). Exports 9 Turso tables to R2 as partitioned Parquet (`r2://skids-analytics/v1/<table>/campaign=<code>/dt=<YYYY-MM-DD>/part-NNNN.parquet`), with snapshot vs incremental modes per table and an `analytics_cursor` row per incremental table. `publishable/` prefix materialised from DuckDB runs against the raw layer with children-band age-bucketing — no PHI. Main worker calls analytics-worker via `ANALYTICS_SVC` service binding, restricted to 5 canonical queries (Q1 chip-vs-AI agreement, Q2 AI spend, Q3 red-flag prevalence, Q4 screener throughput, Q5 time-to-doctor-review). PopulationHealth gains the Q3 red-flag tile (feature-flag gated); rest stay on TS helpers. Migration `0004_analytics_cursor.sql` adds `analytics_cursor`, `analytics_runs`, and a long-missing `audit_log` table. Feature flag `FEATURE_DUCKDB_ANALYTICS` gates the worker route. Pragmatic pivot during implementation: Workers can't embed DuckDB-WASM, so `/run` executes Turso-flavoured SQL against the primary (Q1 proxies disagreement via `reviews.decision IN ('refer','retake')`; Q5 uses julianday-math + ROW_NUMBER-based percentile). DuckDB SQL in `queries.sql` stays authoritative for the analyst REPL (`scripts/duckdb-repl.sh`) running against R2 Parquet. Phase 08 can swap `/run` to MotherDuck without touching the dashboard. Tests: 23 new analytics-worker tests; 53 upstream tests untouched and still green. PR #F.

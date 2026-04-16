@@ -186,7 +186,82 @@ Every response (success or failure) includes `traceId`. Open
 4. Update `failover` in `buildGateway()` (or make per-org via
    `ai_config.features_json.failover_chain`).
 
-## Phase 03–07
+## Phase 04 — DuckDB Analytics
+
+### Components
+
+- **analytics-worker** (`apps/analytics-worker`) — separate Worker, cron `30 20 * * *` UTC (02:00 IST), service-binding `ANALYTICS_SVC` from main worker.
+- **Nightly exporter** — writes Parquet to R2 bucket `skids-analytics` at `v1/<table>/[campaign=<code>/]dt=<YYYY-MM-DD>/part-NNNN.parquet`.
+- **Canonical queries** — `Q1..Q5` allow-listed in `packages/shared/src/analytics/queries.ts`. Params bound, never interpolated.
+- **Publishable views** — de-identified, age-banded, ZSTD Parquet at `publishable/<view>/dt=.../`.
+- **Analyst CLI** — `scripts/duckdb-repl.sh` opens DuckDB against R2 via httpfs.
+- **Main worker proxy** — `POST /api/analytics/run` gated by `FEATURE_DUCKDB_ANALYTICS='1'`; 503 otherwise.
+
+### Daily cron
+
+Runs at 02:00 IST. Check status:
+
+```
+wrangler tail skids-analytics --format=pretty
+```
+
+Toggle the cron path (not the cron trigger itself) via `FEATURE_ANALYTICS_CRON`:
+
+```
+wrangler secret put FEATURE_ANALYTICS_CRON --name skids-analytics   # '1' enable, '0' skip
+```
+
+### Reset an incremental cursor
+
+Incremental tables (observations, ai_usage, audit_log, report_renders, reviews) advance a cursor in `analytics_cursor`. To re-export from a date:
+
+```sql
+UPDATE analytics_cursor
+   SET last_cursor_value = '2026-04-01T00:00:00Z', last_run_at = NULL
+ WHERE table_name = 'observations';
+```
+
+Next cron run will re-write affected partitions. R2 object keys are idempotent per `(table, campaign, dt, part)`.
+
+### Add a new canonical query
+
+1. Append the DuckDB SQL to `packages/shared/src/analytics/queries.sql` under a new heading.
+2. Register it in `QUERIES` in `packages/shared/src/analytics/queries.ts` with `id`, `title`, `description`, `params`, `columns`.
+3. Implement the Turso-flavoured variant in `apps/analytics-worker/src/queries.ts` (`runQN`) and wire into the `/run` switch in `apps/analytics-worker/src/index.ts`.
+4. Add tests covering `isQueryId`, `validateQueryParams`, and the SQL.
+5. Bump `PUBLISHABLE_VIEWS` in `publishable.ts` only if the query needs a new view.
+
+### Analyst R2 access
+
+Set env (secrets live in `.agent/analyst.env` — mode 600):
+
+```
+export S3_ENDPOINT='https://<account>.r2.cloudflarestorage.com'
+export S3_ACCESS_KEY_ID=...
+export S3_SECRET_ACCESS_KEY=...
+./scripts/duckdb-repl.sh
+```
+
+Inside the REPL:
+
+```sql
+SELECT count(*)
+FROM read_parquet('s3://skids-analytics/v1/observations/**/*.parquet');
+```
+
+### Parquet size triage
+
+If a partition exceeds 50 MiB we split into `part-0001..part-NNNN`. To inspect:
+
+```
+wrangler r2 object list skids-analytics --prefix v1/observations/dt=2026-04-15/
+```
+
+### Dashboard tile off
+
+Q3 red-flag tile on `/population-health` requires `FEATURE_DUCKDB_ANALYTICS='1'` on the **main worker** (not analytics-worker). Tile shows a hint banner otherwise and stays empty.
+
+## Phase 05–07
 
 (Appended during each phase PR. See each phase's spec for commands.)
 
