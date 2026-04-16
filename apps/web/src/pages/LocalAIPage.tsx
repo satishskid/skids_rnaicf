@@ -50,10 +50,13 @@ export default function LocalAIClient() {
   // Check WebGPU on mount + auto-load model
   useEffect(() => {
     (async () => {
-      if (!navigator.gpu) { setGpuInfo(null); return }
+      // Navigator.gpu is only present on browsers that ship @webgpu/types; the
+      // DOM lib we compile against doesn't declare it, so we read via an opt-in cast.
+      const gpu = (navigator as Navigator & { gpu?: { requestAdapter(): Promise<unknown> } }).gpu
+      if (!gpu) { setGpuInfo(null); return }
       try {
-        const adapter = await navigator.gpu.requestAdapter()
-        const info = (adapter as any)?.info || {}
+        const adapter = await gpu.requestAdapter()
+        const info = (adapter as { info?: Record<string, string> } | null)?.info || {}
         setGpuInfo(info.description || info.vendor || info.architecture || 'WebGPU')
       } catch { setGpuInfo(null) }
     })()

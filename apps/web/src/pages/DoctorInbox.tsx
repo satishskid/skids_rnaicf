@@ -174,7 +174,7 @@ export function DoctorInboxPage() {
   useEffect(() => {
     async function loadAiConfig() {
       try {
-        const orgId = (user as Record<string, unknown>)?.orgId as string || 'default'
+        const orgId = (user as unknown as Record<string, unknown>)?.orgId as string || 'default'
         const res = await apiCall<{ config: Partial<LLMConfig> | null }>(`/api/ai-config/${orgId}`)
         const orgConfig = { ...DEFAULT_LLM_CONFIG, ...res.config }
         // Apply BYOK overrides from localStorage

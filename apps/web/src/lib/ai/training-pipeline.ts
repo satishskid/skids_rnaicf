@@ -344,7 +344,7 @@ export async function syncTrainingSamples(
 
   try {
     const { apiCall } = await import('@/lib/api')
-    const data = await apiCall<{ success: boolean; synced?: number }>(`/campaigns/${campaignCode}/training`, {
+    const data = await apiCall<{ success: boolean; synced?: number; saved?: number }>(`/campaigns/${campaignCode}/training`, {
       method: 'POST',
       body: JSON.stringify({ doctorId, doctorName, samples: unsynced }),
     })
@@ -361,7 +361,7 @@ export async function syncTrainingSamples(
         writeTx.oncomplete = () => resolve()
         writeTx.onerror = () => reject(writeTx.error)
       })
-      return { synced: data.saved || unsynced.length, failed: 0, alreadySynced }
+      return { synced: data.saved ?? data.synced ?? unsynced.length, failed: 0, alreadySynced }
     } else {
       return { synced: 0, failed: unsynced.length, alreadySynced }
     }

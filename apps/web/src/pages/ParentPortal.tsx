@@ -344,8 +344,8 @@ function ReportView({ data }: { data: ReportData }) {
 
   const fourDReport = useMemo(() => {
     if (!observations?.length) return null
-    return computeFourDReport(observations)
-  }, [observations])
+    return computeFourDReport(child, observations, 'Screening Team')
+  }, [child, observations])
 
   const vitalModules = ['height', 'weight', 'vitals', 'spo2', 'hemoglobin', 'bp', 'muac', 'bmi']
   const vitalObs = observations.filter(o => vitalModules.includes(o.moduleType))
@@ -590,13 +590,13 @@ function ReportView({ data }: { data: ReportData }) {
         )}
 
         {/* 4D Condition Cards */}
-        {fourDReport && fourDReport.categories.some(c => c.conditions.length > 0) && (
+        {fourDReport && Object.values(fourDReport.categories).some(conds => conds.length > 0) && (
           <div className="bg-white rounded-xl border border-gray-200 p-5 print:break-before-page">
             <h2 className="text-sm font-semibold text-gray-800 uppercase tracking-wide mb-3">What We Found</h2>
             <div className="space-y-4">
-              {fourDReport.categories
-                .filter(c => c.conditions.length > 0)
-                .flatMap(cat => cat.conditions.map(cond => ({ ...cond, categoryKey: cat.category as keyof typeof FOUR_D_CATEGORY_LABELS })))
+              {(Object.entries(fourDReport.categories) as Array<[keyof typeof FOUR_D_CATEGORY_LABELS, typeof fourDReport.categories[keyof typeof fourDReport.categories]]>)
+                .filter(([, conds]) => conds.length > 0)
+                .flatMap(([categoryKey, conds]) => conds.map(res => ({ ...res.condition, severity: res.severity, categoryKey })))
                 .map(cond => {
                   const condInfo = getConditionInfo(cond.id)
                   const catLabel = FOUR_D_CATEGORY_LABELS[cond.categoryKey]

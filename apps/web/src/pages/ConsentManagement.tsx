@@ -58,10 +58,10 @@ export function ConsentManagementPage() {
   const loadData = useCallback(async () => {
     setLoading(true)
     try {
-      const [tRes, cRes] = await Promise.all([
+      const [tRes, cRes] = (await Promise.all([
         apiCall('/api/consents/templates'),
         apiCall('/api/consents'),
-      ])
+      ])) as [{ templates?: ConsentTemplate[] }, { consents?: Consent[] }]
       setTemplates(tRes.templates || [])
       setConsents(cRes.consents || [])
     } catch (err) {

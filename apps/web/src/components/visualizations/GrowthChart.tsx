@@ -91,10 +91,10 @@ export function GrowthChart({ observations, childDob }: GrowthChartProps) {
           <XAxis dataKey="age" label={{ value: 'Age (months)', position: 'bottom', fontSize: 10 }} tick={{ fontSize: 10 }} />
           <YAxis label={{ value: metricLabel, angle: -90, position: 'insideLeft', fontSize: 10 }} tick={{ fontSize: 10 }} />
           <Tooltip
-            formatter={(value: number, name: string) => [
-              `${value}${name === 'value' ? '' : ''}`,
+            formatter={((value, name) => [
+              `${value}`,
               name === 'value' ? metricLabel : 'Z-Score',
-            ]}
+            ]) as unknown as (value: unknown, name: unknown) => [string, string]}
             labelFormatter={v => `Age: ${v} months`}
             contentStyle={{ fontSize: 11 }}
           />
