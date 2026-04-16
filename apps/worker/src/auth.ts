@@ -5,8 +5,88 @@
 
 import { betterAuth } from 'better-auth'
 import { organization, bearer } from 'better-auth/plugins'
+import { createAccessControl } from 'better-auth/plugins/access'
+import { defaultStatements } from 'better-auth/plugins/organization/access'
 import { LibsqlDialect } from '@libsql/kysely-libsql'
 import type { Bindings } from './index'
+
+// ── Access control: SKIDS role model ─────────────────────────
+//
+// Better Auth 1.5+ requires `Role<T>` to carry both `authorize` and
+// `statements`. Rather than a loose `{authorize: () => true} as any` cast
+// (which was the 2026-04-15 shim), we use `createAccessControl` to emit
+// fully-typed roles whose resources are declared up front.
+//
+// Resource list (SKIDS-specific + org defaults):
+//   - default org resources: organization, member, invitation, team, ac
+//   - observation, review, analytics, child, campaign, report, media,
+//     screening — mirror the permission check tree used in
+//     apps/worker/src routes.
+//
+// Role → resource/action matrix matches the legacy predicates verbatim
+// (any resource listed in `allowed` was authorized; no action-level check
+// was performed). We express this as the full CRUD verb set per resource
+// the role can touch, giving Better Auth's authorize() a complete view.
+
+const skidsStatements = {
+  ...defaultStatements,
+  observation: ['create', 'read', 'update', 'delete'],
+  review: ['create', 'read', 'update'],
+  analytics: ['read'],
+  child: ['create', 'read', 'update', 'delete'],
+  campaign: ['create', 'read', 'update', 'delete'],
+  report: ['create', 'read'],
+  media: ['create', 'read'],
+  screening: ['create', 'read', 'update'],
+} as const
+
+const ac = createAccessControl(skidsStatements)
+
+// admin / ops_manager — full access across all resources.
+const adminRole = ac.newRole({
+  organization: ['update', 'delete'],
+  member: ['create', 'update', 'delete'],
+  invitation: ['create', 'cancel'],
+  team: ['create', 'update', 'delete'],
+  ac: ['create', 'read', 'update', 'delete'],
+  observation: ['create', 'read', 'update', 'delete'],
+  review: ['create', 'read', 'update'],
+  analytics: ['read'],
+  child: ['create', 'read', 'update', 'delete'],
+  campaign: ['create', 'read', 'update', 'delete'],
+  report: ['create', 'read'],
+  media: ['create', 'read'],
+  screening: ['create', 'read', 'update'],
+})
+
+const opsManagerRole = adminRole // same permission surface as admin
+
+// doctor — review observations, create reviews, read analytics, issue reports.
+const doctorRole = ac.newRole({
+  observation: ['read', 'update'],
+  review: ['create', 'read', 'update'],
+  analytics: ['read'],
+  child: ['read'],
+  campaign: ['read'],
+  report: ['create', 'read'],
+})
+
+// nurse — field screening: create observations, register children, capture media.
+const nurseRole = ac.newRole({
+  observation: ['create', 'read', 'update'],
+  child: ['create', 'read', 'update'],
+  campaign: ['read'],
+  media: ['create', 'read'],
+  screening: ['create', 'read', 'update'],
+})
+
+// authority — read-only analytics and reports.
+const authorityRole = ac.newRole({
+  analytics: ['read'],
+  report: ['read'],
+  campaign: ['read'],
+  child: ['read'],
+})
 
 // ── PBKDF2 password hashing (CF Workers compatible) ──────────
 // Default scrypt is too slow for CF free tier (10ms CPU limit)
@@ -107,39 +187,20 @@ export function createAuth(env: Bindings) {
     plugins: [
       bearer(), // Accept Authorization: Bearer tokens (converts to session cookie internally)
       organization({
-        // Campaigns = Organizations
-        // Each campaign has its own member roles
+        // Campaigns = Organizations. Each campaign has its own member roles.
+        // Role definitions live above in ac.newRole(...) form so that both
+        // `authorize` and `statements` are present — required by
+        // Better Auth's Role<T> type (no more `as any`).
         creatorRole: 'admin',
         memberRole: 'nurse',
-        roles: ({
-          admin: {
-            authorize: () => true, // full access — campaign, user mgmt, analytics
-          },
-          ops_manager: {
-            authorize: () => true, // same as admin — manages operations
-          },
-          doctor: {
-            authorize: (ctx: any) => {
-              // Doctors: review observations, create reviews, view analytics
-              const allowed = ['observation', 'review', 'analytics', 'child', 'campaign', 'report']
-              return allowed.some(r => ctx.resource?.startsWith(r)) || false
-            },
-          },
-          nurse: {
-            authorize: (ctx: any) => {
-              // Nurses: field screening, create observations, register children
-              const allowed = ['observation', 'child', 'campaign', 'media', 'screening']
-              return allowed.some(r => ctx.resource?.startsWith(r)) || false
-            },
-          },
-          authority: {
-            authorize: (ctx: any) => {
-              // Authority: read-only analytics and reports
-              const allowed = ['analytics', 'report', 'campaign', 'child']
-              return allowed.some(r => ctx.resource?.startsWith(r)) || false
-            },
-          },
-        }) as any,
+        ac,
+        roles: {
+          admin: adminRole,
+          ops_manager: opsManagerRole,
+          doctor: doctorRole,
+          nurse: nurseRole,
+          authority: authorityRole,
+        },
       }),
     ],
     trustedOrigins: [
