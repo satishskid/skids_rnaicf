@@ -1,0 +1,25 @@
+{
+  "name": "@skids/analytics-worker",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Nightly Turso -> R2 Parquet exporter + DuckDB query proxy. Runs on its own Worker so it doesn't share cold-start budget with the hot API.",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "typecheck": "tsc --noEmit",
+    "test": "tsx --test test/**/*.test.ts"
+  },
+  "dependencies": {
+    "@libsql/client": "^0.14.0",
+    "@skids/db": "workspace:*",
+    "@skids/shared": "workspace:*",
+    "hono": "^4.7.0",
+    "parquetjs-lite": "^0.8.7"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^4.20250306.0",
+    "tsx": "^4.19.0",
+    "typescript": "^5.8.0",
+    "wrangler": "^4.29.0"
+  }
+}

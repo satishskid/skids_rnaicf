@@ -25,3 +25,6 @@ export * from './embedding-text'
 // Phase 03
 export * from './report-token'
 export * from './report-render-input'
+
+// Phase 04 — DuckDB analytics canonical queries (allow-list + param validator)
+export * from './analytics/queries'

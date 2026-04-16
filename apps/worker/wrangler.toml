@@ -9,6 +9,9 @@ ENVIRONMENT = "production"
 # Phase 2 — Cloudflare AI Gateway routing
 AI_GATEWAY_ACCOUNT_ID = "9f4998a66a5d7bd7a230d0222544fbe6"
 AI_GATEWAY_ID = "skids-screen"
+# Phase 04 — DuckDB analytics feature flag. '1' to enable /api/analytics/run.
+# Default off so the service binding is not required for cold staging.
+FEATURE_DUCKDB_ANALYTICS = "0"
 
 # Turso + Better Auth secrets are set via:
 #   wrangler secret put TURSO_URL
@@ -57,3 +60,10 @@ bucket_name = "skids-reports"
 # trigger is safe to leave on in all environments — flip the env var to enable.
 [triggers]
 crons = ["*/10 3-12 * * *"]
+
+# Phase 04 — service binding to @skids/analytics-worker for canonical query
+# execution. The worker is deployed separately (apps/analytics-worker). When
+# FEATURE_DUCKDB_ANALYTICS=1, /api/analytics/run proxies via this binding.
+[[services]]
+binding = "ANALYTICS_SVC"
+service = "skids-analytics"

@@ -52,6 +52,24 @@ interface CohortAnalytics {
   topFindings: { module_type: string; count: number }[]
 }
 
+// Phase 04 — Q3 canonical query row (red-flag prevalence).
+interface Q3Row {
+  campaign_code: string
+  module_type: string
+  age_months_band: string
+  gender: string
+  total: number
+  red_flags: number
+  red_flag_rate: number
+}
+interface AnalyticsRunResult {
+  queryId: string
+  columns: string[]
+  rows: Q3Row[]
+  ms: number
+  engine: string
+}
+
 export function PopulationHealthPage() {
   const [dashboard, setDashboard] = useState<PopHealthDashboard | null>(null)
   const [cohorts, setCohorts] = useState<CohortDefinition[]>([])
@@ -59,6 +77,10 @@ export function PopulationHealthPage() {
   const [activeTab, setActiveTab] = useState<'dashboard' | 'cohorts' | 'builder'>('dashboard')
   const [selectedCohort, setSelectedCohort] = useState<string | null>(null)
   const [cohortAnalytics, setCohortAnalytics] = useState<CohortAnalytics | null>(null)
+  // Phase 04 — Q3 red-flag prevalence tile (first tile backed by
+  // /api/analytics/run; feature-flag gated via FEATURE_DUCKDB_ANALYTICS).
+  const [q3, setQ3] = useState<AnalyticsRunResult | null>(null)
+  const [q3Error, setQ3Error] = useState<string | null>(null)
 
   const loadData = useCallback(async () => {
     setLoading(true)
@@ -73,6 +95,20 @@ export function PopulationHealthPage() {
       console.error('Failed to load pop health data:', err)
     } finally {
       setLoading(false)
+    }
+
+    // Q3 red-flag prevalence. Fails gracefully when the analytics worker
+    // isn't wired (flag off or service binding missing).
+    try {
+      const res = await apiCall('/api/analytics/run', {
+        method: 'POST',
+        body: JSON.stringify({ queryId: 'Q3', params: { campaign_code: null } }),
+      })
+      setQ3(res as AnalyticsRunResult)
+      setQ3Error(null)
+    } catch (err) {
+      setQ3(null)
+      setQ3Error(err instanceof Error ? err.message : 'analytics unavailable')
     }
   }, [])
 
@@ -122,7 +158,7 @@ export function PopulationHealthPage() {
           <div className="h-8 w-8 animate-spin rounded-full border-4 border-blue-600 border-t-transparent" />
         </div>
       ) : activeTab === 'dashboard' ? (
-        <DashboardView dashboard={dashboard} />
+        <DashboardView dashboard={dashboard} q3={q3} q3Error={q3Error} />
       ) : activeTab === 'cohorts' ? (
         <CohortsView
           cohorts={cohorts}
@@ -138,7 +174,15 @@ export function PopulationHealthPage() {
   )
 }
 
-function DashboardView({ dashboard }: { dashboard: PopHealthDashboard | null }) {
+function DashboardView({
+  dashboard,
+  q3,
+  q3Error,
+}: {
+  dashboard: PopHealthDashboard | null
+  q3: AnalyticsRunResult | null
+  q3Error: string | null
+}) {
   if (!dashboard) return <div className="py-10 text-center text-gray-500">No data available</div>
 
   return (
@@ -195,6 +239,9 @@ function DashboardView({ dashboard }: { dashboard: PopHealthDashboard | null }) 
           )}
         </div>
       </div>
+
+      {/* Phase 04 — Q3 red-flag prevalence (DuckDB analytics) */}
+      <Q3RedFlagTile q3={q3} error={q3Error} />
 
       {/* Campaigns Overview */}
       <div className="rounded-lg border border-gray-200 bg-white p-5 shadow-sm">
@@ -469,5 +516,80 @@ function FilterChip({ label }: { label: string }) {
     <span className="rounded-full bg-blue-100 px-2 py-0.5 text-[10px] font-medium text-blue-700">
       {label}
     </span>
+  )
+}
+
+/**
+ * Phase 04 — Q3 red-flag prevalence tile.
+ *
+ * Pulls `POST /api/analytics/run { queryId: 'Q3' }` — the first tile
+ * wired to the DuckDB analytics pipeline. Degrades gracefully when the
+ * feature flag is off or the service binding isn't provisioned.
+ *
+ * Rows are aggregated by module × age band × gender × campaign; we show
+ * the top 12 highest-rate cells as a horizontal bar list. Analysts who
+ * want the full slice can run `scripts/duckdb-repl.sh` locally.
+ */
+function Q3RedFlagTile({ q3, error }: { q3: AnalyticsRunResult | null; error: string | null }) {
+  const featureOff = error?.includes('feature_disabled') || error?.includes('service_binding_missing') || false
+  const top = [...(q3?.rows ?? [])]
+    .filter(r => r.total >= 10)
+    .sort((a, b) => b.red_flag_rate - a.red_flag_rate)
+    .slice(0, 12)
+
+  return (
+    <div className="rounded-lg border border-gray-200 bg-white p-5 shadow-sm">
+      <div className="flex items-start justify-between">
+        <h3 className="flex items-center gap-2 font-semibold text-gray-900">
+          <BarChart3 className="h-5 w-5 text-rose-600" />
+          Red-Flag Prevalence by Module × Age × Gender
+        </h3>
+        <span className="rounded-full bg-gray-100 px-2 py-0.5 text-[10px] font-medium text-gray-600">
+          Q3 · DuckDB analytics
+        </span>
+      </div>
+      {!q3 && featureOff ? (
+        <p className="mt-3 text-xs text-gray-500">
+          DuckDB analytics pipeline is not enabled. Flip
+          <code className="mx-1 rounded bg-gray-100 px-1">FEATURE_DUCKDB_ANALYTICS=1</code>
+          and deploy <code className="rounded bg-gray-100 px-1">skids-analytics</code>
+          to enable this tile.
+        </p>
+      ) : !q3 && error ? (
+        <p className="mt-3 text-xs text-rose-600">Could not load analytics: {error}</p>
+      ) : top.length === 0 ? (
+        <p className="mt-3 text-xs text-gray-500">No cells met the minimum sample size (n ≥ 10) yet.</p>
+      ) : (
+        <div className="mt-4 space-y-2">
+          {top.map((r, i) => {
+            const pct = (r.red_flag_rate * 100).toFixed(1)
+            return (
+              <div key={i} className="flex items-center gap-3">
+                <div className="w-48 shrink-0 text-xs font-medium text-gray-700">
+                  {r.module_type.replace(/_/g, ' ')}
+                  <span className="ml-1 text-gray-400">· {r.age_months_band}mo · {r.gender}</span>
+                </div>
+                <div className="flex-1">
+                  <div className="h-2 overflow-hidden rounded-full bg-gray-100">
+                    <div
+                      className="h-full rounded-full bg-rose-500"
+                      style={{ width: `${Math.min(100, r.red_flag_rate * 100)}%` }}
+                    />
+                  </div>
+                </div>
+                <div className="w-28 text-right text-xs text-gray-500">
+                  {r.red_flags}/{r.total} ({pct}%)
+                </div>
+              </div>
+            )
+          })}
+          {q3 && (
+            <p className="pt-2 text-[10px] text-gray-400">
+              {q3.rows.length} cells · {q3.ms}ms · engine {q3.engine}
+            </p>
+          )}
+        </div>
+      )}
+    </div>
   )
 }
