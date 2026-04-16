@@ -55,9 +55,8 @@ const RECOMMENDED_MODELS = [
 ]
 
 export function SettingsScreen() {
-  const { user } = useAuth()
+  const { user, token } = useAuth()
   const insets = useSafeAreaInsets()
-  const token = user?.token || null
   const isDoctor = user?.role === 'doctor' || user?.role === 'admin'
 
   // AI Config state
