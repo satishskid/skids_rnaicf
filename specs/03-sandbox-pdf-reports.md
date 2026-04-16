@@ -14,7 +14,7 @@
 - `apps/web/src/pages/FourDReport.tsx`, `ChildReport.tsx`, `ParentReport.tsx` — current HTML render targets
 - `packages/shared/src/four-d-mapping.ts` and `packages/shared/src/report-content.ts` — content pipeline (single source for all 3 reports)
 - `apps/worker/src/routes/r2.ts` — R2 helpers
-- `packages/db/src/schema.sql` — `campaigns.archive_url`, `report_tokens` table
+- `packages/db/src/schema.sql` — `campaigns.archive_url`, `report_access_tokens` table (renamed from `report_tokens` on 2026-04-16 to avoid collision with the pre-Phase-03 parent-portal table)
 - Cloudflare Sandbox docs (current GA release notes) — confirm binding syntax
 
 ---
@@ -25,7 +25,7 @@
 - **Template engine**: Jinja2; templates live in `apps/worker/sandbox/templates/{fourd,child,parent}.html.j2`
 - **Cache key**: `sha256(report_type + child_id + report_content_json + template_version)`
 - **R2 layout**: `r2://skids-media/reports/<report_type>/<child_id>/<cache_key>.pdf`
-- **Access**: existing `report_tokens` row maps token → R2 key; worker streams from R2 via signed URL
+- **Access**: `report_access_tokens` row maps token → R2 key; worker streams from R2 via signed URL
 - **Pre-warm**: a scheduled trigger pings the Sandbox every 10 min to keep a warm instance during business hours (9–18 IST)
 - **Signing**: HMAC-SHA256 with `SANDBOX_SIGNING_KEY`, embedded in token payload (`{kid, exp, child_id, cache_key}`)
 
@@ -125,7 +125,7 @@ Current flow probably issues a token first and renders later. Reverse it for par
 - POST /api/report-tokens with `{ childId, reportType, ttlMinutes }`
 - Internally: call `/api/reports/render` (or the same handler logic) → get cacheKey
 - Sign payload `{ cacheKey, childId, reportType, exp }` with `SANDBOX_SIGNING_KEY`
-- Store row in `report_tokens` (existing table)
+- Store row in `report_access_tokens`
 - Return token
 
 GET /api/reports/serve/:token verifies HMAC, looks up R2 key, streams PDF with `Content-Type: application/pdf`, no-cache headers.

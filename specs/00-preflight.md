@@ -59,7 +59,7 @@ turso db show skids-screen
 turso db shell skids-screen "SELECT name FROM sqlite_master WHERE type='table' ORDER BY name;"
 ```
 
-Expected tables include: `campaigns`, `children`, `observations`, `studies`, `consents`, `instruments`, `ai_usage`, `audit_log`, `campaign_assignments`, `report_tokens`, `sessions`. If `ai_usage` or `ai_config` is missing, note in `STATUS.md` — those tables are created on-demand by the worker routes, and that's fine.
+Expected tables include: `campaigns`, `children`, `observations`, `studies`, `consents`, `instruments`, `ai_usage`, `audit_log`, `campaign_assignments`, `report_tokens` (legacy parent-portal flow, camelCase cols), `report_access_tokens` (Phase 03 HMAC-signed flow, snake_case cols), `report_renders`, `sessions`. If `ai_usage` or `ai_config` is missing, note in `STATUS.md` — those tables are created on-demand by the worker routes, and that's fine.
 
 Record the Turso primary region and replica regions in `docs/RESIDENCY.md`.
 

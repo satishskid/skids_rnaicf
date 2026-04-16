@@ -1,10 +1,14 @@
 // Phase 03 — POST /api/reports/render
 //
 // Internal issuance endpoint. Renders a PDF, stores it in R2_REPORTS_BUCKET,
-// inserts a hashed-token row into report_tokens, and returns the consumer URL
-// `/api/reports/:id/pdf?t=<r>.<hmac>` for downstream delivery (parent SMS,
-// admin tooling, etc). The raw token is delivered exactly once, in the
-// response — it is never persisted server-side.
+// inserts a hashed-token row into report_access_tokens, and returns the
+// consumer URL `/api/reports/:id/pdf?t=<r>.<hmac>` for downstream delivery
+// (parent SMS, admin tooling, etc). The raw token is delivered exactly once,
+// in the response — it is never persisted server-side.
+//
+// NOTE: table is `report_access_tokens`, NOT `report_tokens`. The latter is
+// the pre-Phase-03 parent-portal flow (12-char raw token, camelCase cols)
+// still served by apps/worker/src/routes/report-tokens.ts.
 
 import { Hono } from 'hono'
 import { renderTemplate } from '@skids/pdf-templates'
@@ -59,24 +63,24 @@ app.post('/render', async (c) => {
     httpMetadata: { contentType: 'application/pdf' },
   })
 
-  // 4. Insert report_tokens row
+  // 4. Insert report_access_tokens row
   const expiresAt = new Date(Date.now() + input.expiresInDays * 24 * 60 * 60 * 1000).toISOString()
   const db = c.get('db')
   await db.execute({
-    sql: `INSERT INTO report_tokens (
-      token_hash, child_id, campaign_code, report_type, created_by,
-      expires_at, access_count, revoked_at,
-      report_id, report_r2_key, rate_limit
-    ) VALUES (?, ?, ?, ?, ?, ?, 0, NULL, ?, ?, ?)`,
+    sql: `INSERT INTO report_access_tokens (
+      token_hash, report_id, report_r2_key,
+      child_id, campaign_code, report_type, created_by,
+      expires_at, access_count, revoked_at, rate_limit
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, NULL, ?)`,
     args: [
       issued.hash,
+      reportId,
+      r2Key,
       input.childId,
       input.campaignCode,
       input.reportType,
       userId,
       expiresAt,
-      reportId,
-      r2Key,
       input.rateLimit,
     ],
   })
