@@ -49,19 +49,36 @@ export function suggestChipsForModule(
   const suggestions: ChipSuggestion[] = []
 
   switch (moduleType) {
-    case 'height':
+    case 'height': {
+      // AnthropometryResult carries a single zScore; for height modules this is HAZ.
+      if (data.anthropometry && data.anthropometry.zScore < -2) {
+        suggestions.push({
+          chipId: 'ht1',
+          confidence: 0.8,
+          source: 'algorithm',
+          reason: `Stunting (HAZ ${data.anthropometry.zScore.toFixed(1)})`,
+        })
+      }
+      break
+    }
+
     case 'weight': {
-      if (data.anthropometry) {
-        const a = data.anthropometry
-        if (a.heightForAgeZ !== undefined && a.heightForAgeZ < -2) {
-          suggestions.push({ chipId: 'ht1', confidence: 0.8, source: 'algorithm', reason: 'Stunting (HAZ < -2)' })
-        }
-        if (a.weightForAgeZ !== undefined && a.weightForAgeZ < -2) {
-          suggestions.push({ chipId: 'wt1', confidence: 0.8, source: 'algorithm', reason: 'Underweight (WAZ < -2)' })
-        }
-        if (a.bmiForAgeZ !== undefined && a.bmiForAgeZ > 2) {
-          suggestions.push({ chipId: 'wt2', confidence: 0.7, source: 'algorithm', reason: 'Overweight (BAZ > 2)' })
-        }
+      // For weight modules the zScore is WAZ (or BAZ if the upstream classifier produced it).
+      if (data.anthropometry && data.anthropometry.zScore < -2) {
+        suggestions.push({
+          chipId: 'wt1',
+          confidence: 0.8,
+          source: 'algorithm',
+          reason: `Underweight (WAZ ${data.anthropometry.zScore.toFixed(1)})`,
+        })
+      }
+      if (data.anthropometry && data.anthropometry.zScore > 2) {
+        suggestions.push({
+          chipId: 'wt2',
+          confidence: 0.7,
+          source: 'algorithm',
+          reason: `Overweight (z ${data.anthropometry.zScore.toFixed(1)})`,
+        })
       }
       break
     }
@@ -69,10 +86,10 @@ export function suggestChipsForModule(
     case 'muac': {
       if (data.muac !== undefined) {
         const cls = classifyMUAC(data.muac)
-        if (cls.category === 'SAM') {
-          suggestions.push({ chipId: 'defc9', confidence: 0.9, source: 'algorithm', reason: 'MUAC < 115mm' })
-        } else if (cls.category === 'MAM') {
-          suggestions.push({ chipId: 'defc10', confidence: 0.85, source: 'algorithm', reason: 'MUAC 115-125mm' })
+        if (cls.severity === 'severe') {
+          suggestions.push({ chipId: 'defc9', confidence: 0.9, source: 'algorithm', reason: 'MUAC < 115mm (SAM)' })
+        } else if (cls.severity === 'moderate') {
+          suggestions.push({ chipId: 'defc10', confidence: 0.85, source: 'algorithm', reason: 'MUAC 115-125mm (MAM)' })
         }
       }
       break
