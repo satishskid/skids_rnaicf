@@ -42,3 +42,14 @@ Thumbs.db
 
 # Test
 coverage/
+
+# Agent working directory (local ship scripts + PR body drafts)
+.agent/
+
+# Per-machine Claude settings
+.claude/settings.local.json
+
+# Personal memory files not yet promoted to the shared map
+.claude/memory/MEMORY.md
+.claude/memory/credentials-and-urls.md
+.claude/memory/working-style-and-ship-flow.md
