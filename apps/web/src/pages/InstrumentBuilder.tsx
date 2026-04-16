@@ -71,7 +71,7 @@ export function InstrumentBuilderPage() {
   const loadInstruments = useCallback(async () => {
     setLoading(true)
     try {
-      const res = await apiCall('/api/instruments?status=all')
+      const res = (await apiCall('/api/instruments?status=all')) as { instruments?: Instrument[] }
       setInstruments(res.instruments || [])
     } catch (err) {
       console.error('Failed to load instruments:', err)
@@ -91,8 +91,8 @@ export function InstrumentBuilderPage() {
 
   const handleViewDetail = async (id: string) => {
     try {
-      const res = await apiCall(`/api/instruments/${id}`)
-      setPreviewInstrument(res.instrument)
+      const res = (await apiCall(`/api/instruments/${id}`)) as { instrument?: Instrument }
+      setPreviewInstrument(res.instrument ?? null)
     } catch (err) {
       console.error('Failed to load instrument:', err)
     }

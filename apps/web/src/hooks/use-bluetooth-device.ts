@@ -131,7 +131,10 @@ export function useBluetoothDevice(
     setError(null)
 
     try {
-      const serviceUUID = BLE_SERVICES[serviceType]
+      // BLE_SERVICES carries the 16-bit assigned-number form (e.g. 0x1822).
+      // Web Bluetooth accepts numbers at runtime but the TS DOM typings type
+      // BluetoothServiceUUID as string, so we widen locally.
+      const serviceUUID = BLE_SERVICES[serviceType] as unknown as string
       const device = await navigator.bluetooth.requestDevice({
         filters: [{ services: [serviceUUID] }],
         optionalServices: [serviceUUID],
@@ -231,8 +234,8 @@ export function useBluetoothDevice(
     if (!server) return null
 
     try {
-      const serviceUUID = BLE_SERVICES[serviceType]
-      const characteristicUUID = BLE_CHARACTERISTICS[serviceType]
+      const serviceUUID = BLE_SERVICES[serviceType] as unknown as string
+      const characteristicUUID = BLE_CHARACTERISTICS[serviceType] as unknown as string
 
       const service = await server.getPrimaryService(serviceUUID)
       const characteristic = await service.getCharacteristic(characteristicUUID)
@@ -265,8 +268,8 @@ export function useBluetoothDevice(
     } catch (err) {
       // Some devices don't support readValue() — try notifications instead
       try {
-        const serviceUUID = BLE_SERVICES[serviceType]
-        const characteristicUUID = BLE_CHARACTERISTICS[serviceType]
+        const serviceUUID = BLE_SERVICES[serviceType] as unknown as string
+        const characteristicUUID = BLE_CHARACTERISTICS[serviceType] as unknown as string
         const service = await server.getPrimaryService(serviceUUID)
         const characteristic = await service.getCharacteristic(characteristicUUID)
 
@@ -282,30 +285,34 @@ export function useBluetoothDevice(
             resolve(null)
           }, 15000) // 15s timeout
 
-          characteristic.addEventListener('characteristicvaluechanged', (event: Event) => {
-            clearTimeout(timeout)
-            const target = event.target as BluetoothRemoteGATTCharacteristic
-            const dataView = target.value!
-            const parsed = parseBLEReading(serviceType, dataView)
+          ;(characteristic as unknown as EventTarget).addEventListener(
+            'characteristicvaluechanged',
+            (event: Event) => {
+              clearTimeout(timeout)
+              const target = event.target as unknown as BluetoothRemoteGATTCharacteristic
+              const dataView = target.value!
+              const parsed = parseBLEReading(serviceType, dataView)
 
-            const reading: BLEReading = {
-              ...parsed,
-              timestamp: new Date().toISOString(),
-              deviceName: deviceName || 'Unknown Device',
-              serviceType,
-            }
+              const reading: BLEReading = {
+                ...parsed,
+                timestamp: new Date().toISOString(),
+                deviceName: deviceName || 'Unknown Device',
+                serviceType,
+              }
 
-            setLastReading(reading)
-            characteristic.stopNotifications().catch(() => {})
+              setLastReading(reading)
+              characteristic.stopNotifications().catch(() => {})
 
-            if (autoDisconnect) {
-              server.disconnect()
-              setIsConnected(false)
-              serverRef.current = null
-            }
+              if (autoDisconnect) {
+                server.disconnect()
+                setIsConnected(false)
+                serverRef.current = null
+              }
 
-            resolve(reading)
-          }, { once: true })
+              resolve(reading)
+            },
+            { once: true } as AddEventListenerOptions,
+          )
 
           characteristic.startNotifications().catch((notifyErr) => {
             clearTimeout(timeout)

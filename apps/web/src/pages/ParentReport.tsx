@@ -23,6 +23,7 @@ interface ReportData {
   child: Child
   observations: Observation[]
   campaignCode: string
+  screenerName?: string
   reviews?: Array<{
     decision?: string
     notes?: string

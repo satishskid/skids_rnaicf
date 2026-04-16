@@ -686,7 +686,7 @@ export function AuthorityDashboardPage() {
             <Suspense fallback={<div className="h-80 flex items-center justify-center text-sm text-gray-400">Loading map...</div>}>
               <CampaignMap
                 campaigns={campaignRows.map(row => {
-                  const campaign = allCampaigns.find(c => c.code === row.code) as Record<string, unknown> | undefined
+                  const campaign = allCampaigns.find(c => c.code === row.code) as unknown as Record<string, unknown> | undefined
                   return {
                     code: row.code,
                     name: row.name,
@@ -712,7 +712,7 @@ export function AuthorityDashboardPage() {
             <TemporalTrends observations={allObservations.map(o => ({
               id: o.id,
               moduleType: o.moduleType,
-              timestamp: (o as Record<string, unknown>).timestamp as string | undefined,
+              timestamp: (o as unknown as Record<string, unknown>).timestamp as string | undefined,
               aiAnnotations: o.aiAnnotations,
             }))} />
           </div>

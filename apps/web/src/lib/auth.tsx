@@ -24,6 +24,12 @@ interface AuthContextValue {
   signOut: () => void
   error: string | null
   clearError: () => void
+  /**
+   * Authenticated fetch wrapper. Prepends the stored bearer token and a
+   * default `Content-Type: application/json` when the caller didn't set one.
+   * Consumers should `await res.json()` themselves.
+   */
+  apiCall: (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>
 }
 
 const AuthContext = createContext<AuthContextValue | null>(null)
@@ -110,6 +116,21 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const clearError = useCallback(() => setError(null), [])
 
+  const apiCall = useCallback(
+    async (input: RequestInfo | URL, init: RequestInit = {}) => {
+      const token = localStorage.getItem('auth_token')
+      const headers = new Headers(init.headers)
+      if (token && !headers.has('Authorization')) {
+        headers.set('Authorization', `Bearer ${token}`)
+      }
+      if (init.body && !headers.has('Content-Type')) {
+        headers.set('Content-Type', 'application/json')
+      }
+      return fetch(input, { ...init, headers })
+    },
+    [],
+  )
+
   return (
     <AuthContext.Provider
       value={{
@@ -121,6 +142,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         signOut,
         error,
         clearError,
+        apiCall,
       }}
     >
       {children}
