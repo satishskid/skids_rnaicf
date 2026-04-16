@@ -2,7 +2,7 @@
 //
 // Each issuance produces:
 //   raw      — 32 bytes of CSPRNG randomness, base64url-encoded (~43 chars).
-//   hash     — sha256(raw_bytes), hex-encoded. STORED in report_tokens.token_hash.
+//   hash     — sha256(raw_bytes), hex-encoded. STORED in report_access_tokens.token_hash.
 //   hmac     — HMAC-SHA256(signingKey, raw + reportId), base64url-encoded.
 //              Bound to reportId so a leaked token cannot be replayed against
 //              a different report row.
@@ -72,7 +72,7 @@ async function hmacSha256(keyBytes: Uint8Array, msg: Uint8Array): Promise<Uint8A
 
 export interface IssuedToken {
   raw: string       // base64url(32 random bytes)
-  hash: string      // hex sha256(raw_bytes) — store in report_tokens.token_hash
+  hash: string      // hex sha256(raw_bytes) — store in report_access_tokens.token_hash
   hmac: string      // base64url HMAC over (raw_bytes || reportIdBytes)
   urlParam: string  // `${raw}.${hmac}` — pass to clients as ?t=
 }
@@ -95,7 +95,7 @@ export async function issueToken(signingKey: string, reportId: string): Promise<
 
 export interface VerifiedToken {
   raw: string
-  hash: string  // hex sha256(raw_bytes) — use to look up report_tokens row
+  hash: string  // hex sha256(raw_bytes) — use to look up report_access_tokens row
 }
 
 export async function verifyToken(

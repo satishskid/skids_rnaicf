@@ -30,13 +30,14 @@ app.get('/:id/pdf', async (c) => {
   const verified = await verifyToken(c.env.REPORT_SIGNING_KEY, reportId, tParam)
   if (!verified) return c.json({ error: 'Invalid token' }, 403)
 
-  // 2. DB lookup
+  // 2. DB lookup. Phase 03 uses `report_access_tokens` (distinct from the
+  // legacy parent-portal `report_tokens` table served by report-tokens.ts).
   const db = c.get('db')
   const nowIso = new Date().toISOString()
   const row = await db.execute({
     sql: `SELECT token_hash, report_id, report_r2_key, child_id, campaign_code,
                  access_count, rate_limit, expires_at, revoked_at
-          FROM report_tokens
+          FROM report_access_tokens
           WHERE token_hash = ? AND report_id = ?
             AND expires_at > ? AND revoked_at IS NULL
             AND access_count < rate_limit`,
@@ -47,7 +48,7 @@ app.get('/:id/pdf', async (c) => {
 
   // 3. Increment access_count + stamp used_at on first hit.
   await db.execute({
-    sql: `UPDATE report_tokens
+    sql: `UPDATE report_access_tokens
           SET access_count = access_count + 1,
               used_at = COALESCE(used_at, ?)
           WHERE token_hash = ?`,

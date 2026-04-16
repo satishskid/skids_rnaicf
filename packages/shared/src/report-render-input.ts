@@ -39,9 +39,9 @@ export const reportRenderInputSchema = z.object({
   templateName: z.enum(REPORT_TEMPLATE_NAMES),
   data: parentScreeningReportData,
   locale: z.enum(REPORT_RENDER_LOCALES),
-  // child_id + campaign_code are needed for the report_tokens row but are not
-  // part of the renderable payload — passed as siblings so we can FK-link
-  // without trusting the renderable `data.child.campaignCode` alone.
+  // child_id + campaign_code are needed for the report_access_tokens row but
+  // are not part of the renderable payload — passed as siblings so we can
+  // FK-link without trusting the renderable `data.child.campaignCode` alone.
   childId: z.string().min(1).max(64),
   campaignCode: z.string().min(1).max(64),
   reportType: z.enum(['fourd', 'child', 'parent']),

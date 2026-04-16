@@ -386,8 +386,16 @@ CREATE TABLE IF NOT EXISTS cohort_definitions (
 CREATE INDEX IF NOT EXISTS idx_cohort_org ON cohort_definitions(org_code);
 
 -- Phase 3 — Sandbox PDF reports
-CREATE TABLE IF NOT EXISTS report_tokens (
+--
+-- NOTE: table renamed `report_tokens` → `report_access_tokens` on 2026-04-16
+-- to avoid collision with the pre-Phase-03 parent-portal flow in
+-- apps/worker/src/routes/report-tokens.ts (12-char URL tokens, camelCase
+-- columns). That route still creates a separate `report_tokens` table on
+-- demand for legacy parent access; Phase 03 lives here.
+CREATE TABLE IF NOT EXISTS report_access_tokens (
   token_hash TEXT PRIMARY KEY,
+  report_id TEXT NOT NULL,
+  report_r2_key TEXT NOT NULL,
   child_id TEXT NOT NULL REFERENCES children(id),
   campaign_code TEXT NOT NULL REFERENCES campaigns(code),
   report_type TEXT NOT NULL CHECK (report_type IN ('fourd', 'child', 'parent')),
@@ -397,15 +405,12 @@ CREATE TABLE IF NOT EXISTS report_tokens (
   used_at TEXT,
   revoked_at TEXT,
   access_count INTEGER NOT NULL DEFAULT 0,
-  -- Phase 03 — added by migrations/0003a_report_tokens_phase03_extras.sql
-  report_id TEXT,
-  report_r2_key TEXT NOT NULL DEFAULT '',
   rate_limit INTEGER NOT NULL DEFAULT 60
 );
-CREATE INDEX IF NOT EXISTS idx_report_tokens_child ON report_tokens(child_id);
-CREATE INDEX IF NOT EXISTS idx_report_tokens_campaign ON report_tokens(campaign_code);
-CREATE INDEX IF NOT EXISTS idx_report_tokens_expiry ON report_tokens(expires_at);
-CREATE UNIQUE INDEX IF NOT EXISTS idx_report_tokens_report_id ON report_tokens(report_id);
+CREATE INDEX IF NOT EXISTS idx_report_access_tokens_child ON report_access_tokens(child_id);
+CREATE INDEX IF NOT EXISTS idx_report_access_tokens_campaign ON report_access_tokens(campaign_code);
+CREATE INDEX IF NOT EXISTS idx_report_access_tokens_expiry ON report_access_tokens(expires_at);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_report_access_tokens_report_id ON report_access_tokens(report_id);
 
 CREATE TABLE IF NOT EXISTS report_renders (
   cache_key TEXT PRIMARY KEY,
