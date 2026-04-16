@@ -19,7 +19,23 @@ import type { Observation } from '@skids/shared'
 import type { DataStore, SyncStateRecord } from '@/lib/data-store'
 import { uploadObservationMedia, stripBase64FromObservation } from '@/lib/media-upload'
 import { authFetch } from '@/lib/api'
-import { getDeviceId } from '@/lib/campaign-types'
+
+// Device ID: stable per-browser UUID, persisted in localStorage.
+// Used by the sync API to dedupe observations arriving from multiple clients.
+function getDeviceId(): string {
+  const KEY = 'skids_device_id'
+  try {
+    let id = localStorage.getItem(KEY)
+    if (!id) {
+      id = (globalThis.crypto?.randomUUID?.() ??
+        `dev-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`)
+      localStorage.setItem(KEY, id)
+    }
+    return id
+  } catch {
+    return `dev-ephemeral-${Date.now()}`
+  }
+}
 
 // ── Types ───────────────────────────────────────────
 
