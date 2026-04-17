@@ -53,3 +53,6 @@ coverage/
 .claude/memory/MEMORY.md
 .claude/memory/credentials-and-urls.md
 .claude/memory/working-style-and-ship-flow.md
+
+# Generated slide images from marp QA workflow
+docs/decks/slide-*.jpg
