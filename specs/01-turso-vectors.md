@@ -63,7 +63,7 @@ CREATE INDEX IF NOT EXISTS idx_obs_embedded_at ON observations(embedded_at);
 
 Apply via Turso CLI:
 ```bash
-turso db shell skids-screen < packages/db/src/migrations/0001_observations_embedding.sql
+turso db shell skids-screen-v3 < packages/db/src/migrations/0001_observations_embedding.sql
 ```
 
 Update `packages/db/src/schema.sql` to UNCOMMENT the embedding line and add the two new columns + index — schema.sql is the source-of-truth document; migrations are the apply mechanism.

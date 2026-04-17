@@ -55,8 +55,8 @@ All three must pass with zero errors. If any fail, fix before proceeding — do 
 ### 2. Turso state check
 
 ```bash
-turso db show skids-screen
-turso db shell skids-screen "SELECT name FROM sqlite_master WHERE type='table' ORDER BY name;"
+turso db show skids-screen-v3
+turso db shell skids-screen-v3 "SELECT name FROM sqlite_master WHERE type='table' ORDER BY name;"
 ```
 
 Expected tables include: `campaigns`, `children`, `observations`, `studies`, `consents`, `instruments`, `ai_usage`, `audit_log`, `campaign_assignments`, `report_tokens` (legacy parent-portal flow, camelCase cols), `report_access_tokens` (Phase 03 HMAC-signed flow, snake_case cols), `report_renders`, `sessions`. If `ai_usage` or `ai_config` is missing, note in `STATUS.md` — those tables are created on-demand by the worker routes, and that's fine.
@@ -194,7 +194,7 @@ pnpm build
 echo "== wrangler =="
 cd apps/worker && npx wrangler deploy --dry-run --outdir=.preflight
 echo "== turso =="
-turso db show skids-screen >/dev/null
+turso db show skids-screen-v3 >/dev/null
 echo "OK"
 ```
 
