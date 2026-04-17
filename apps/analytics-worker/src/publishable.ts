@@ -78,7 +78,9 @@ COPY (
   FROM (
     SELECT
       id, campaign_code, gender, class, created_at,
-      CAST((julianday(CURRENT_DATE) - julianday(dob)) / 30.4375 AS INTEGER) AS age_months
+      -- DuckDB-native date arithmetic (no julianday like SQLite).
+      -- dob arrives as a YYYY-MM-DD string via NDJSON, so cast to DATE.
+      CAST(date_diff('month', CAST(dob AS DATE), CURRENT_DATE) AS INTEGER) AS age_months
     FROM read_json_auto('s3://${bucket}/${rawPrefix}/children/**/*.jsonl', hive_partitioning=1)
   )
 ) TO 's3://${bucket}/${pubPrefix}/publishable_children/dt=${dt}/part-0001.parquet' (FORMAT PARQUET, COMPRESSION ZSTD);
@@ -113,20 +115,23 @@ COPY (
     ON c.id = obs.child_id
 ) TO 's3://${bucket}/${pubPrefix}/publishable_observations/dt=${dt}/part-0001.parquet' (FORMAT PARQUET, COMPRESSION ZSTD);
 
--- 3) Publishable ai_usage: pass-through (no PHI).
+-- 3) Publishable ai_usage: pass-through (no PHI). Column list matches
+-- the Turso ai_usage table exactly so empty-sentinel reads don't trip
+-- the binder.
 COPY (
   SELECT
-    id, campaign_code, model, provider, tier, module_type,
-    input_tokens, output_tokens, latency_ms,
-    cost_usd, cost_usd_micros, cached, created_at
+    id, campaign_code, model, tier,
+    input_tokens, output_tokens, latency_ms, cost_usd, created_at
   FROM read_json_auto('s3://${bucket}/${rawPrefix}/ai_usage/**/*.jsonl', hive_partitioning=1)
 ) TO 's3://${bucket}/${pubPrefix}/publishable_ai_usage/dt=${dt}/part-0001.parquet' (FORMAT PARQUET, COMPRESSION ZSTD);
 
--- 4) Publishable reviews: no PHI columns, keep latency metrics.
+-- 4) Publishable reviews: no PHI columns, keep decision + quality.
+-- Turso reviews has no ms_to_review column; analysts compute it at query
+-- time by joining observations.created_at.
 COPY (
   SELECT
-    id, observation_id, reviewer_id,
-    status, decision, ms_to_review, created_at
+    id, observation_id, campaign_code, clinician_id,
+    decision, quality_rating, retake_reason, reviewed_at
   FROM read_json_auto('s3://${bucket}/${rawPrefix}/reviews/**/*.jsonl', hive_partitioning=1)
 ) TO 's3://${bucket}/${pubPrefix}/publishable_reviews/dt=${dt}/part-0001.parquet' (FORMAT PARQUET, COMPRESSION ZSTD);
 
