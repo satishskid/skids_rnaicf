@@ -10,7 +10,7 @@ ENVIRONMENT = "production"
 # in the scheduled handler (skip on false).
 ANALYTICS_R2_PREFIX = "v1"
 ANALYTICS_PUBLISHABLE_PREFIX = "publishable"
-FEATURE_ANALYTICS_CRON = "0"
+FEATURE_ANALYTICS_CRON = "1"
 
 # Read-only Turso access. Never use the write token here.
 #   wrangler secret put TURSO_READ_URL
@@ -20,12 +20,9 @@ FEATURE_ANALYTICS_CRON = "0"
 # apps/analytics-worker/src/publishable.ts for the contract); this worker only
 # handles the raw Parquet export + the /run query proxy.
 
-# Cron trigger deferred: CF Free plan caps account-wide at 5 crons, already used
-# by other workers. Re-enable after freeing a slot (dash → Workers → Triggers).
-# Until then, trigger nightly via `wrangler cron trigger skids-analytics` or via
-# a fetch from the main skids-api worker's scheduled handler.
-# [triggers]
-# crons = ["30 20 * * *"]
+# Cadence: 02:00 IST == 20:30 UTC. FEATURE_ANALYTICS_CRON gates the handler.
+[triggers]
+crons = ["30 20 * * *"]
 
 [[r2_buckets]]
 binding = "ANALYTICS_R2"
