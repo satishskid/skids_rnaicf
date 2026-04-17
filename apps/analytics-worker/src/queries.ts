@@ -31,7 +31,13 @@ export interface QueryResult {
   columns: string[]
   rows: Record<string, unknown>[]
   ms: number
-  engine: 'turso' | 'duckdb'
+  /**
+   * Always 'turso' today. The field is explicit (rather than implied) so
+   * future callers can see at a glance which engine served their query,
+   * and so a Phase 08 / MotherDuck swap can widen the union without
+   * silent breakage. Until then, a future 'duckdb' value would be a lie.
+   */
+  engine: 'turso'
 }
 
 function client(env: Env): Client {

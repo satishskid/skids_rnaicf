@@ -136,9 +136,11 @@ ONNX photoscreening · MediaPipe face/pose · jpeg-js red-reflex + clinical colo
 
 ## 5 · Population health + analytics (Phase 04, layered)
 
+Three independent planes. The live `/api/analytics/run` endpoint runs **Turso-native SQL** — it does not call DuckDB. The DuckDB script exists as a reference dialect for offline analysis + as the source for the nightly publishable layer.
+
 ```mermaid
 flowchart TB
-  subgraph Realtime["Real-time (Turso-direct)"]
+  subgraph Realtime["Real-time plane — Turso-direct"]
     COH[/api/cohorts/*<br/>computePrevalenceReport/]
     PHD[/api/cohorts/population-health/dashboard/]
     UI1[Web PopulationHealth page<br/>3 tabs: Epi · Cohorts · Builder]
@@ -146,46 +148,50 @@ flowchart TB
     PHD --> UI1
   end
 
-  subgraph Raw["Raw Parquet (nightly)"]
+  subgraph Canon["Canonical queries Q1–Q5 — Turso SQL"]
+    RUN[POST /api/analytics/run<br/>allow-list · engine='turso']
+    T_HOT[(Turso libSQL<br/>read-only token)]
+    Q1T[Q1 agreement heatmap tile]
+    Q2T[Q2 AI spend tile]
+    Q3T[Q3 red-flag prevalence tile]
+    Q4T[Q4 screener throughput tile]
+    Q5T[Q5 review SLA tile]
+    RUN --> T_HOT
+    UI1 --> Q1T & Q2T & Q3T & Q4T & Q5T
+    Q1T & Q2T & Q3T & Q4T & Q5T --> RUN
+  end
+
+  subgraph Raw["Raw Parquet plane — nightly cron"]
     CRON(((cron 20:30 UTC)))
     ANL[skids-analytics Worker]
-    T[(Turso read-only)]
     R2RAW[(R2 skids-analytics<br/>v1/&lt;table&gt;/&lt;isoDate&gt;/)]
-    CRON --> ANL --> T
+    CRON --> ANL --> T_HOT
     ANL --> R2RAW
   end
 
-  subgraph Pub["De-identified Parquet (DEFERRED)"]
-    SQL[/analytics/publishable-sql<br/>generates DuckDB script/]
-    DUCK[(operator laptop<br/>or GH Action<br/>NOT WIRED)]
-    R2PUB[(R2 publishable/<br/>age_months_band · no PHI)]
-    SQL -.-> DUCK -.-> R2PUB
+  subgraph Pub["De-identified Parquet plane — GitHub Action nightly"]
+    SQL[/analytics/publishable-sql<br/>emits DuckDB script/]
+    GHA[GitHub Action<br/>21:00 UTC daily]
+    R2PUB[(R2 skids-analytics<br/>publishable/&lt;view&gt;/dt=&lt;date&gt;/)]
+    DUCKLOCAL[scripts/duckdb-repl.sh<br/>analyst laptop]
+    SQL --> GHA --> R2PUB
+    R2RAW -. reads .-> GHA
+    R2PUB -. reads .-> DUCKLOCAL
   end
-
-  subgraph Canon["Canonical queries Q1–Q5"]
-    RUN[POST /api/analytics/run<br/>allow-list]
-    Q1[Q1 agreement heatmap]
-    Q2[Q2 AI spend]
-    Q3[Q3 red-flag prevalence<br/>✅ wired to UI]
-    Q4[Q4 screener throughput]
-    Q5[Q5 review SLA P50/P95/P99]
-    RUN --> Q1 & Q2 & Q3 & Q4 & Q5
-    R2PUB -. reads .-> RUN
-  end
-
-  UI1 -->|Q3 tile only| RUN
 ```
 
 **Live today:**
-- Nightly Parquet export of all raw tables to R2. Cursor-driven incremental writes via `analytics_cursor`; runs logged in `analytics_runs`.
-- 5 canonical queries allow-listed at [packages/shared/src/analytics/queries.sql](packages/shared/src/analytics/queries.sql), proxied through `ANALYTICS_SVC` service binding.
-- `PopulationHealth` page live at `/population-health`, admin + ops_manager only: epi dashboard from Turso-direct APIs, saved cohorts, cohort builder, and the Q3 prevalence tile backed by `/api/analytics/run`.
+- `/api/analytics/run` returns **Turso-flavoured SQL results** for Q1–Q5 (`engine: 'turso'`). Empty rows today reflect sparse underlying data (observations count × reviewed observations), not a missing engine. [apps/analytics-worker/src/queries.ts](apps/analytics-worker/src/queries.ts)
+- Nightly cron at 20:30 UTC writes raw Parquet to `r2://skids-analytics/v1/<table>/<date>/`. Cursor-driven incremental writes via `analytics_cursor`; runs logged in `analytics_runs`.
+- **All 5 UI tiles** (Q1 agreement, Q2 spend, Q3 red-flag prevalence, Q4 throughput, Q5 SLA) wired in [apps/web/src/components/analytics/AnalyticsTiles.tsx](apps/web/src/components/analytics/AnalyticsTiles.tsx). Each tile loads independently with a shared `AnalyticsTile` wrapper handling loading/empty/error states.
+- `PopulationHealth` page live at `/population-health`, admin + ops_manager only: epi dashboard (Turso-direct), saved cohorts, cohort builder, and the 5 analytics tiles.
 - `computePrevalenceReport` + `population-analytics.ts` power real-time cohort comparisons without waiting for the Parquet layer.
+- **Nightly GitHub Action** at 21:00 UTC materialises the de-identified publishable Parquet: fetches the DuckDB SQL from `GET /publishable-sql`, runs it against R2 raw Parquet with injected S3 credentials, writes `publishable/<view>/dt=<date>/`. See [.github/workflows/analytics-publishable.yml](.github/workflows/analytics-publishable.yml).
 
-**Deferred:**
-- **Publishable de-identified Parquet is not materialized yet.** The worker emits the DuckDB SQL (`GET /analytics/publishable-sql?isoDate=…`) but the job that runs it is not scheduled — it expects an operator laptop or a GH Action. Consequence: **Q1–Q5 read from `publishable/` prefixes that are currently empty**, so Q3 tile renders empty rows in production even though the query runs. Unblocker: wire a GH Action to execute the SQL nightly with R2 secrets. [apps/analytics-worker/src/publishable.ts:1](apps/analytics-worker/src/publishable.ts:1)
-- **Only Q3 tile wired in the UI.** Q1/Q2/Q4/Q5 work via the API but no React component renders them. Straightforward follow-up — the `/api/analytics/run` contract is stable.
-- **MotherDuck** — originally Phase 8, now permanently deferred. External researchers query R2 Parquet directly with DuckDB.
+**Deferred (intentional):**
+- **DuckDB in a Worker** — explicitly NOT wired per [queries.ts:1-23](apps/analytics-worker/src/queries.ts:1-23) (no WASM binding; bundle size blows Worker limits). The plan is Phase 08 / MotherDuck: swap the `/run` implementation behind the same interface. Permanently not-a-bug for v1.
+- **GitHub Action secrets** — the workflow is shipped but needs `R2_ACCOUNT_ID`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY` in repo Settings → Actions → Secrets. Workflow fails fast with a clear error until those land; no other subsystem affected.
+- **`scripts/duckdb-repl.sh`** — referenced in publishable SQL comments for offline analyst use; not yet authored. Low priority (analysts can run DuckDB directly against R2 as documented in the workflow).
 
 ---
 
@@ -429,8 +435,8 @@ Migrations live in [packages/db/src/migrations](packages/db/src/migrations). Sch
 |---|---|---|
 | **Liquid AI weights on R2** | `MODEL_MANIFEST.version = 'PENDING-PIN-2026-04-15'`; every shard `sha256 = 'PENDING-PIN'`. `isPlaceholderManifest()` returns true. | Pin real version + per-shard sha256 → `wrangler r2 object put skids-models/models/liquid-ai/LFM2.5-VL-450M/<version>/<shard>` → land the manifest diff → flip guard off. [packages/shared/src/ai/model-manifest.ts:27](packages/shared/src/ai/model-manifest.ts:27) |
 | **Liquid AI mobile runtime** | Phase 02a web track shipped first; mobile (React Native) never started | Port [packages/liquid-ai/src/web](packages/liquid-ai/src/web) loader to RN (WebGPU → on-device execution provider). Same manifest pinning + OPFS-equivalent cache. |
-| **Publishable de-identified Parquet job** | `apps/analytics-worker/src/publishable.ts` emits DuckDB SQL via `GET /analytics/publishable-sql?isoDate=…`, but the executor isn't scheduled. Consequence: Q1–Q5 read from empty `publishable/` prefixes and return 0 rows even though cron emits raw Parquet nightly. | Wire a GitHub Action (or Workers scheduled trigger + Fetch to a DuckDB service) that runs the generated SQL against R2 with the `s3_*` secrets. Populates `r2://skids-analytics/publishable/<view>/dt=<date>/`. |
-| **Analytics UI tiles Q1/Q2/Q4/Q5** | Only Q3 red-flag prevalence is wired in [apps/web/src/pages/PopulationHealth.tsx](apps/web/src/pages/PopulationHealth.tsx). | `/api/analytics/run` contract is stable — add four React components that call it with the matching `queryId`. |
+| **Publishable Parquet GitHub Action secrets** | [.github/workflows/analytics-publishable.yml](.github/workflows/analytics-publishable.yml) is in the repo and runs nightly at 21:00 UTC; it fails fast with a clear error until `R2_ACCOUNT_ID`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY` are added to repo Settings → Secrets and variables → Actions. | Add the three secrets (2 min); the next nightly run populates `r2://skids-analytics/publishable/<view>/dt=<date>/`. |
+| **`scripts/duckdb-repl.sh` for analysts** | Referenced in publishable SQL comments; not yet authored. Analysts can run DuckDB directly against R2 in the meantime. | Optional quality-of-life — low priority. |
 | **Sandbox AI container image** | Open-beta `[[containers]]` API + Docker image build needs host-side tooling | `docker build apps/worker/sandbox-ai` → `wrangler containers push` → uncomment `[[containers]]` in wrangler.toml. DB + consumer + UI already live. |
 | **Parent SMS/WhatsApp delivery** | Out of scope for v1; report URL generation is live, last-mile is manual | Wire a delivery adapter that consumes the `POST /api/reports/render` response + sends the signed link. |
 | **PDF render inside workflow** | Report render is admin-endpoint today; Phase 05 `sandbox-pdf` queue is a stub consumer | Replace [apps/worker/src/queues/consumers/sandbox-pdf.ts](apps/worker/src/queues/consumers/sandbox-pdf.ts) body with a `renderTemplate()` call. |
