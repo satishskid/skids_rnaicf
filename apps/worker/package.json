@@ -20,6 +20,7 @@
     "@libsql/client": "^0.14.0",
     "@libsql/kysely-libsql": "^0.4.1",
     "@skids/db": "workspace:*",
+    "@skids/evidence": "workspace:*",
     "@skids/pdf-templates": "workspace:*",
     "@skids/shared": "workspace:*",
     "better-auth": "^1.5.0",
