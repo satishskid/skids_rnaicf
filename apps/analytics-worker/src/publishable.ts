@@ -79,8 +79,17 @@ COPY (
     SELECT
       id, campaign_code, gender, class, created_at,
       -- DuckDB-native date arithmetic (no julianday like SQLite).
-      -- dob arrives as a YYYY-MM-DD string via NDJSON, so cast to DATE.
-      CAST(date_diff('month', CAST(dob AS DATE), CURRENT_DATE) AS INTEGER) AS age_months
+      -- dob arrives as either YYYY-MM-DD or YYYYMMDD depending on the
+      -- historical write path. try_strptime() returns NULL on failure
+      -- so the TRY_CAST chain picks whichever format parses.
+      CAST(date_diff(
+        'month',
+        COALESCE(
+          try_strptime(dob, '%Y-%m-%d'),
+          try_strptime(dob, '%Y%m%d')
+        )::DATE,
+        CURRENT_DATE
+      ) AS INTEGER) AS age_months
     FROM read_json_auto('s3://${bucket}/${rawPrefix}/children/**/*.jsonl', hive_partitioning=1)
   )
 ) TO 's3://${bucket}/${pubPrefix}/publishable_children/dt=${dt}/part-0001.parquet' (FORMAT PARQUET, COMPRESSION ZSTD);
@@ -115,24 +124,29 @@ COPY (
     ON c.id = obs.child_id
 ) TO 's3://${bucket}/${pubPrefix}/publishable_observations/dt=${dt}/part-0001.parquet' (FORMAT PARQUET, COMPRESSION ZSTD);
 
--- 3) Publishable ai_usage: pass-through (no PHI). Column list matches
--- the Turso ai_usage table exactly so empty-sentinel reads don't trip
--- the binder.
+-- 3) Publishable ai_usage: pass-through (no PHI). Explicit columns=
+-- spec so a 0-byte sentinel file still gives DuckDB a schema to bind
+-- against (read_json_auto can't infer from zero records).
 COPY (
-  SELECT
-    id, campaign_code, model, tier,
-    input_tokens, output_tokens, latency_ms, cost_usd, created_at
-  FROM read_json_auto('s3://${bucket}/${rawPrefix}/ai_usage/**/*.jsonl', hive_partitioning=1)
+  SELECT *
+  FROM read_json('s3://${bucket}/${rawPrefix}/ai_usage/**/*.jsonl',
+                 columns={id: 'VARCHAR', campaign_code: 'VARCHAR', model: 'VARCHAR',
+                          tier: 'VARCHAR', input_tokens: 'BIGINT', output_tokens: 'BIGINT',
+                          latency_ms: 'BIGINT', cost_usd: 'DOUBLE', created_at: 'VARCHAR'},
+                 format='newline_delimited', ignore_errors=true)
 ) TO 's3://${bucket}/${pubPrefix}/publishable_ai_usage/dt=${dt}/part-0001.parquet' (FORMAT PARQUET, COMPRESSION ZSTD);
 
 -- 4) Publishable reviews: no PHI columns, keep decision + quality.
 -- Turso reviews has no ms_to_review column; analysts compute it at query
 -- time by joining observations.created_at.
 COPY (
-  SELECT
-    id, observation_id, campaign_code, clinician_id,
-    decision, quality_rating, retake_reason, reviewed_at
-  FROM read_json_auto('s3://${bucket}/${rawPrefix}/reviews/**/*.jsonl', hive_partitioning=1)
+  SELECT *
+  FROM read_json('s3://${bucket}/${rawPrefix}/reviews/**/*.jsonl',
+                 columns={id: 'VARCHAR', observation_id: 'VARCHAR', campaign_code: 'VARCHAR',
+                          clinician_id: 'VARCHAR', decision: 'VARCHAR',
+                          quality_rating: 'VARCHAR', retake_reason: 'VARCHAR',
+                          reviewed_at: 'VARCHAR'},
+                 format='newline_delimited', ignore_errors=true)
 ) TO 's3://${bucket}/${pubPrefix}/publishable_reviews/dt=${dt}/part-0001.parquet' (FORMAT PARQUET, COMPRESSION ZSTD);
 
 -- 5) Publishable audit_log: keep action + timestamp only.
