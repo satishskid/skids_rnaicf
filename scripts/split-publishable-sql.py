@@ -40,7 +40,10 @@ def main() -> int:
 
     preamble = sql[:idx].strip()
     rest = sql[idx:]
-    chunks = re.split(r";\s*\n(?=COPY )", rest)
+    # Split at `;` followed by any mix of whitespace and `--` comment
+    # lines and a following `COPY `. The worker prefixes each COPY with
+    # a `-- N) ...` comment for readability.
+    chunks = re.split(r";[ \t]*\n(?:[ \t]*(?:--[^\n]*)?\n)*(?=COPY )", rest)
     chunks = [c.rstrip().rstrip(";").strip() for c in chunks if c.strip()]
 
     lines: list[str] = [
