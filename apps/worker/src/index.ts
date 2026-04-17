@@ -98,6 +98,11 @@ export type Bindings = {
   // '1' routes observations through ScreeningObservationWorkflow. Default
   // off — inline insert path remains authoritative until dashboards green.
   FEATURE_USE_WORKFLOW?: string
+  // Phase 06 — Sandbox AI second-opinion container binding.
+  // Present when wrangler.toml declares [[containers]] + Durable Object
+  // class (open beta). Absent deployments leave the pending row for ops
+  // to drain via scripts/publish-model.sh + a follow-up wrangler push.
+  SANDBOX_AI?: { fetch: (request: Request) => Promise<Response> }
 }
 
 // Variables set per-request
