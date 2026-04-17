@@ -47,6 +47,9 @@ jobs:
       R2_BUCKET: skids-analytics
 
     steps:
+      - name: Checkout repo (for scripts/split-publishable-sql.py)
+        uses: actions/checkout@v4
+
       - name: Check required secrets
         run: |
           missing=()
