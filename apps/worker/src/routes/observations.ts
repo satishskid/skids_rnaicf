@@ -379,6 +379,46 @@ observationRoutes.patch('/:id/doctor-review', async (c) => {
   })
 })
 
+// ── Phase 06 — Sandbox second-opinion manual trigger ──
+
+/**
+ * POST /api/observations/:id/second-opinion
+ *
+ * Admin/doctor-initiated re-analysis. Queues a sandbox-second-opinion job
+ * and returns immediately. The consumer honours session_ai_budget and is
+ * idempotent on (observation_id, model_version), so repeated clicks are
+ * safe. Returns 404 if the observation does not exist, 403 if the role is
+ * not doctor/admin/ops_manager, 503 if the queue binding is not wired.
+ */
+observationRoutes.post('/:id/second-opinion', async (c) => {
+  const role = c.get('userRole')
+  if (role !== 'doctor' && role !== 'admin' && role !== 'ops_manager') {
+    return c.json({ error: 'Doctor, admin, or ops_manager role required' }, 403)
+  }
+  const observationId = c.req.param('id')
+  const db = c.get('db')
+  const obs = await db.execute({
+    sql: 'SELECT id, session_id, module_type FROM observations WHERE id = ? LIMIT 1',
+    args: [observationId],
+  })
+  if (obs.rows.length === 0) return c.json({ error: 'Observation not found' }, 404)
+
+  const q = c.env.SANDBOX_2ND_OPINION_Q
+  if (!q) {
+    return c.json({ error: 'sandbox-second-opinion queue binding not configured' }, 503)
+  }
+  const body = await c.req.json().catch(() => ({}))
+  await q.send({
+    kind: 'sandbox-second-opinion',
+    observationId,
+    moduleType: (obs.rows[0].module_type as string) ?? 'vision',
+    confidence: typeof body.confidence === 'number' ? body.confidence : 0.5,
+    riskLevel: typeof body.riskLevel === 'number' ? body.riskLevel : 0,
+    requestedBy: c.get('userId'),
+  })
+  return c.json({ observationId, queued: true, message: 'Second-opinion request queued' }, 202)
+})
+
 // ── AI Accuracy Metrics ──
 
 /**
