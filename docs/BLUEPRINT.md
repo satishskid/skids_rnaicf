@@ -29,11 +29,12 @@ SKIDS Screen is an offline-capable pediatric screening platform. A nurse uses an
 
 ```mermaid
 flowchart LR
-  subgraph Device["DEVICE — Nurse tablet (offline-first)"]
+  subgraph Device["DEVICE — Nurse tablet + Doctor browser"]
     CAM[Capture: camera / mic / form]
     QG[Quality gate]
-    T1[Tier 1 on-device AI<br/>ONNX + MediaPipe + rules]
-    T2OD[Tier 2 on-device ensemble]
+    T0[Tier 0 classical AI<br/>ONNX + MediaPipe + jpeg-js + rules]
+    T2OD[Tier-2 on-device ensemble]
+    LFM[Liquid AI LFM2.5-VL-450M<br/>OPFS + WebLLM WebGPU<br/>— manifest PENDING-PIN]
   end
 
   subgraph CF["CLOUDFLARE perimeter (APAC)"]
@@ -60,12 +61,16 @@ flowchart LR
 
   subgraph Clients["CLIENTS"]
     WEB[DoctorInbox<br/>Admin · Parent portal]
+    POP[PopulationHealth page<br/>Epi · Cohorts · Builder<br/>Q3 tile wired]
     MOB[Expo mobile]
     PAR[Parent link + QR]
   end
 
-  CAM --> QG --> T1 --> T2OD --> API
+  CAM --> QG --> T0 --> T2OD --> API
+  WEB -.-> LFM
+  LFM -.->|same-origin shards| API
   MOB -. offline queue .-> API
+  POP --> API
   API --> TURSO
   API --> R2M
   API -->|FEATURE_USE_WORKFLOW=1| WF
@@ -89,7 +94,102 @@ flowchart LR
 
 ---
 
-## 4 · The four primary journeys
+## 4 · Two on-device AI tracks worth naming
+
+### 4A · Liquid AI on the web (Phase 02a-web)
+
+```mermaid
+flowchart LR
+  Browser[Doctor / nurse browser]
+  API[skids-api /api/models]
+  R2M[(R2 skids-models)]
+  OPFS[(OPFS cache<br/>per shard)]
+  WL[WebLLM MLCEngine<br/>WebGPU]
+  HITL[/api/on-device-ai/:outcome]
+  A[(audit_log)]
+
+  Browser -->|pinned MODEL_MANIFEST| API
+  API --> R2M
+  R2M --> API --> Browser
+  Browser -->|per-shard SHA-256| OPFS
+  OPFS --> WL
+  WL -->|suggested / accepted / rejected / edited| HITL
+  HITL --> A
+```
+
+**Why it matters:** LFM2.5-VL-450M runs on the doctor's / nurse's machine with **zero cloud egress** — no HuggingFace, no external CDN. Shards are served same-origin from our R2 under SKIDS auth, verified against a **pinned manifest** (literal constant, no dynamic "latest"), and cached in OPFS so the second session is instant. HITL outcomes (suggested → accepted/rejected/edited) are audited with model id + version pinned so we can prove who saw what.
+
+**Live today:**
+- `GET /api/models/:modelId/:version/:shard` — [apps/worker/src/routes/models.ts](apps/worker/src/routes/models.ts)
+- Browser loader + OPFS + SHA verification + WebLLM wiring — [packages/liquid-ai/src/web/loader.ts](packages/liquid-ai/src/web/loader.ts)
+- `POST /api/on-device-ai/:outcome` HITL audit — [apps/worker/src/routes/on-device-ai.ts](apps/worker/src/routes/on-device-ai.ts)
+
+**Deferred:**
+- **Weights not uploaded.** `MODEL_MANIFEST.version = 'PENDING-PIN-2026-04-15'`; every shard sha256 is literally `'PENDING-PIN'`. Unblocker: pin real version + sha256s, upload shards to `r2://skids-models/models/liquid-ai/LFM2.5-VL-450M/<version>/`, flip `isPlaceholderManifest()` to false. [packages/shared/src/ai/model-manifest.ts:27](packages/shared/src/ai/model-manifest.ts:27)
+- **Mobile track.** Only the web runtime exists; mobile stays on ONNX/MediaPipe Tier-1 until a React Native runtime lands.
+
+### 4B · Tier-0 on-device classical AI (shipped earlier, still primary nurse path)
+
+ONNX photoscreening · MediaPipe face/pose · jpeg-js red-reflex + clinical color · M-CHAT / motor rule-based scoring. Runs offline on the nurse tablet, populates `AIAnnotation[]` before sync. This is what every captured observation hits first; Tier-1/2/secondary only engage when the on-device confidence says it's needed.
+
+---
+
+## 5 · Population health + analytics (Phase 04, layered)
+
+```mermaid
+flowchart TB
+  subgraph Realtime["Real-time (Turso-direct)"]
+    COH[/api/cohorts/*<br/>computePrevalenceReport/]
+    PHD[/api/cohorts/population-health/dashboard/]
+    UI1[Web PopulationHealth page<br/>3 tabs: Epi · Cohorts · Builder]
+    COH --> UI1
+    PHD --> UI1
+  end
+
+  subgraph Raw["Raw Parquet (nightly)"]
+    CRON(((cron 20:30 UTC)))
+    ANL[skids-analytics Worker]
+    T[(Turso read-only)]
+    R2RAW[(R2 skids-analytics<br/>v1/&lt;table&gt;/&lt;isoDate&gt;/)]
+    CRON --> ANL --> T
+    ANL --> R2RAW
+  end
+
+  subgraph Pub["De-identified Parquet (DEFERRED)"]
+    SQL[/analytics/publishable-sql<br/>generates DuckDB script/]
+    DUCK[(operator laptop<br/>or GH Action<br/>NOT WIRED)]
+    R2PUB[(R2 publishable/<br/>age_months_band · no PHI)]
+    SQL -.-> DUCK -.-> R2PUB
+  end
+
+  subgraph Canon["Canonical queries Q1–Q5"]
+    RUN[POST /api/analytics/run<br/>allow-list]
+    Q1[Q1 agreement heatmap]
+    Q2[Q2 AI spend]
+    Q3[Q3 red-flag prevalence<br/>✅ wired to UI]
+    Q4[Q4 screener throughput]
+    Q5[Q5 review SLA P50/P95/P99]
+    RUN --> Q1 & Q2 & Q3 & Q4 & Q5
+    R2PUB -. reads .-> RUN
+  end
+
+  UI1 -->|Q3 tile only| RUN
+```
+
+**Live today:**
+- Nightly Parquet export of all raw tables to R2. Cursor-driven incremental writes via `analytics_cursor`; runs logged in `analytics_runs`.
+- 5 canonical queries allow-listed at [packages/shared/src/analytics/queries.sql](packages/shared/src/analytics/queries.sql), proxied through `ANALYTICS_SVC` service binding.
+- `PopulationHealth` page live at `/population-health`, admin + ops_manager only: epi dashboard from Turso-direct APIs, saved cohorts, cohort builder, and the Q3 prevalence tile backed by `/api/analytics/run`.
+- `computePrevalenceReport` + `population-analytics.ts` power real-time cohort comparisons without waiting for the Parquet layer.
+
+**Deferred:**
+- **Publishable de-identified Parquet is not materialized yet.** The worker emits the DuckDB SQL (`GET /analytics/publishable-sql?isoDate=…`) but the job that runs it is not scheduled — it expects an operator laptop or a GH Action. Consequence: **Q1–Q5 read from `publishable/` prefixes that are currently empty**, so Q3 tile renders empty rows in production even though the query runs. Unblocker: wire a GH Action to execute the SQL nightly with R2 secrets. [apps/analytics-worker/src/publishable.ts:1](apps/analytics-worker/src/publishable.ts:1)
+- **Only Q3 tile wired in the UI.** Q1/Q2/Q4/Q5 work via the API but no React component renders them. Straightforward follow-up — the `/api/analytics/run` contract is stable.
+- **MotherDuck** — originally Phase 8, now permanently deferred. External researchers query R2 Parquet directly with DuckDB.
+
+---
+
+## 6 · The four primary journeys
 
 ### 4.1 Nurse captures a screening
 
@@ -225,7 +325,7 @@ Canonical queries: Q1 module/age × agreement, Q2 disagreement trends, Q3 module
 
 ---
 
-## 5 · Infrastructure inventory (live)
+## 7 · Infrastructure inventory (live)
 
 | Layer | Resource | Purpose | Binding / key |
 |---|---|---|---|
@@ -250,7 +350,7 @@ Canonical queries: Q1 module/age × agreement, Q2 disagreement trends, Q3 module
 
 ---
 
-## 6 · Feature flag registry (current state)
+## 8 · Feature flag registry (current state)
 
 | Flag | Where | Value | What it gates | Rollback |
 |---|---|---|---|---|
@@ -266,7 +366,7 @@ All flags live in `apps/worker/wrangler.toml` or `apps/analytics-worker/wrangler
 
 ---
 
-## 7 · Database entities (who writes what)
+## 9 · Database entities (who writes what)
 
 ```mermaid
 erDiagram
@@ -307,7 +407,7 @@ Migrations live in [packages/db/src/migrations](packages/db/src/migrations). Sch
 
 ---
 
-## 8 · Safety nets + observability
+## 10 · Safety nets + observability
 
 | Concern | Mechanism | Signal |
 |---|---|---|
@@ -323,24 +423,29 @@ Migrations live in [packages/db/src/migrations](packages/db/src/migrations). Sch
 
 ---
 
-## 9 · What's still deferred (known gaps)
+## 11 · What's still deferred (known gaps)
 
 | Item | Why it's deferred | Unblocker |
 |---|---|---|
-| **Sandbox AI container image** | Open-beta `[[containers]]` API + Docker image build needs host-side tooling | Run `docker build apps/worker/sandbox-ai` → `wrangler containers push` → uncomment `[[containers]]` in wrangler.toml |
-| **Parent SMS/WhatsApp delivery** | Out of scope for v1; report URL generation is live, last-mile is manual | Wire `scripts/publish-model.sh`-style delivery adapter |
-| **PDF render inside workflow** | Report render is admin-endpoint today; Phase 05 `sandbox-pdf` queue is a stub | Replace consumer body with a `renderTemplate()` call |
-| **Doctor inbox SecondOpinionBadge in row header** | `ObservationContextPanel` shows it in the expand pane; row-level badge needs secondary annotation loaded in list query | Extend `GET /api/observations` select to join `ai_annotations_secondary` |
-| **MotherDuck / researcher SQL** | Phase 8 originally scoped; not needed for v1 | External DuckDB reads Parquet directly |
+| **Liquid AI weights on R2** | `MODEL_MANIFEST.version = 'PENDING-PIN-2026-04-15'`; every shard `sha256 = 'PENDING-PIN'`. `isPlaceholderManifest()` returns true. | Pin real version + per-shard sha256 → `wrangler r2 object put skids-models/models/liquid-ai/LFM2.5-VL-450M/<version>/<shard>` → land the manifest diff → flip guard off. [packages/shared/src/ai/model-manifest.ts:27](packages/shared/src/ai/model-manifest.ts:27) |
+| **Liquid AI mobile runtime** | Phase 02a web track shipped first; mobile (React Native) never started | Port [packages/liquid-ai/src/web](packages/liquid-ai/src/web) loader to RN (WebGPU → on-device execution provider). Same manifest pinning + OPFS-equivalent cache. |
+| **Publishable de-identified Parquet job** | `apps/analytics-worker/src/publishable.ts` emits DuckDB SQL via `GET /analytics/publishable-sql?isoDate=…`, but the executor isn't scheduled. Consequence: Q1–Q5 read from empty `publishable/` prefixes and return 0 rows even though cron emits raw Parquet nightly. | Wire a GitHub Action (or Workers scheduled trigger + Fetch to a DuckDB service) that runs the generated SQL against R2 with the `s3_*` secrets. Populates `r2://skids-analytics/publishable/<view>/dt=<date>/`. |
+| **Analytics UI tiles Q1/Q2/Q4/Q5** | Only Q3 red-flag prevalence is wired in [apps/web/src/pages/PopulationHealth.tsx](apps/web/src/pages/PopulationHealth.tsx). | `/api/analytics/run` contract is stable — add four React components that call it with the matching `queryId`. |
+| **Sandbox AI container image** | Open-beta `[[containers]]` API + Docker image build needs host-side tooling | `docker build apps/worker/sandbox-ai` → `wrangler containers push` → uncomment `[[containers]]` in wrangler.toml. DB + consumer + UI already live. |
+| **Parent SMS/WhatsApp delivery** | Out of scope for v1; report URL generation is live, last-mile is manual | Wire a delivery adapter that consumes the `POST /api/reports/render` response + sends the signed link. |
+| **PDF render inside workflow** | Report render is admin-endpoint today; Phase 05 `sandbox-pdf` queue is a stub consumer | Replace [apps/worker/src/queues/consumers/sandbox-pdf.ts](apps/worker/src/queues/consumers/sandbox-pdf.ts) body with a `renderTemplate()` call. |
+| **Doctor inbox SecondOpinionBadge in row header** | `ObservationContextPanel` shows it in the expand pane; row-level badge needs secondary annotation loaded in list query | Extend `GET /api/observations` select to `LEFT JOIN ai_annotations_secondary`. |
+| **MotherDuck / researcher SQL** | Phase 8 originally scoped; not needed for v1 | External DuckDB reads Parquet directly — no work required. |
 
 ---
 
-## 10 · Glossary
+## 12 · Glossary
 
 | Term | Meaning |
 |---|---|
-| **Tier 1** | On-device AI (ONNX, MediaPipe, jpeg-js pixel math) — runs offline, <1 s |
-| **Tier 2** | Cloud AI via AI Gateway (Groq primary, Anthropic/Gemini overflow) — doctor-only |
+| **Tier 0** | Classical on-device AI (ONNX, MediaPipe, jpeg-js pixel math, rule-based M-CHAT/motor) — runs offline on the nurse tablet, <1 s |
+| **Tier 1 (on-device LLM)** | Liquid AI LFM2.5-VL-450M on WebGPU via OPFS-cached shards — runs in the doctor / nurse browser, zero cloud egress |
+| **Tier 2 (cloud)** | Cloud AI via AI Gateway (Groq primary, Anthropic/Gemini overflow) — doctor-only |
 | **Secondary** | Server-side ONNX re-analysis in the Sandbox AI container — Phase 06, budget-gated |
 | **Observation** | One captured media + AI annotation pair — the atomic clinical event |
 | **Session** | A child's full screening across all modules — bounded by `session_id` |
@@ -351,7 +456,7 @@ Migrations live in [packages/db/src/migrations](packages/db/src/migrations). Sch
 
 ---
 
-## 11 · Where to look when things break
+## 13 · Where to look when things break
 
 | Symptom | First place | Runbook |
 |---|---|---|
