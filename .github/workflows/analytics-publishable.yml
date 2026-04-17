@@ -82,7 +82,9 @@ jobs:
       - name: Fetch publishable SQL for ${{ steps.date.outputs.iso }}
         id: sql
         env:
-          ENDPOINT: "https://${{ secrets.R2_ACCOUNT_ID }}.r2.cloudflarestorage.com"
+          # DuckDB's s3_endpoint expects host only (no scheme). The worker
+          # emits the literal SET string, so we pass it bare here.
+          ENDPOINT: "${{ secrets.R2_ACCOUNT_ID }}.r2.cloudflarestorage.com"
         run: |
           # Fetch the SQL template (secrets come in empty — we patch them in next).
           curl -sSfL "${ANALYTICS_WORKER_URL}/publishable-sql?isoDate=${{ steps.date.outputs.iso }}&bucket=${R2_BUCKET}&endpoint=${ENDPOINT}" \
@@ -118,8 +120,38 @@ jobs:
 
       - name: Execute DuckDB script
         run: |
-          # Use a fresh in-memory DuckDB — no local state persists between runs.
-          duckdb -no-stdin :memory: < /tmp/publishable.sql
+          # Fresh in-memory DuckDB; echo the effective script header for
+          # debugging (credentials masked by GitHub's auto-redaction), then
+          # execute and capture stderr as well as stdout.
+          echo "::group::Effective DuckDB script (head)"
+          head -6 /tmp/publishable.sql | sed 's/\(s3_[a-z_]*=\x27\)[^\x27]*\x27/\1***\x27/g'
+          echo "::endgroup::"
+
+          set -o pipefail
+          duckdb :memory: < /tmp/publishable.sql 2>&1 | tee /tmp/duckdb.out
+          rc=${PIPESTATUS[0]}
+          if [[ $rc -ne 0 ]]; then
+            echo "::error::DuckDB exited with code $rc"
+            exit $rc
+          fi
+          echo "DuckDB stdout lines: $(wc -l < /tmp/duckdb.out)"
+
+      - name: Verify publishable Parquet was written
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          AWS_DEFAULT_REGION: auto
+        run: |
+          # Probe R2 via DuckDB httpfs to confirm the partition exists.
+          duckdb :memory: -c "
+            INSTALL httpfs; LOAD httpfs;
+            SET s3_endpoint='${{ secrets.R2_ACCOUNT_ID }}.r2.cloudflarestorage.com';
+            SET s3_access_key_id='${{ secrets.R2_ACCESS_KEY_ID }}';
+            SET s3_secret_access_key='${{ secrets.R2_SECRET_ACCESS_KEY }}';
+            SET s3_url_style='path';
+            SELECT COUNT(*) AS children FROM read_parquet('s3://${R2_BUCKET}/publishable/publishable_children/dt=${{ steps.date.outputs.iso }}/*.parquet');
+            SELECT COUNT(*) AS observations FROM read_parquet('s3://${R2_BUCKET}/publishable/publishable_observations/dt=${{ steps.date.outputs.iso }}/*.parquet');
+          "
 
       - name: Notify on failure
         if: failure()
