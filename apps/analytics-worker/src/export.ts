@@ -118,6 +118,24 @@ async function exportOne(
   }
 
   if (all.length === 0) {
+    // Write a zero-byte sentinel so downstream DuckDB globs in the
+    // publishable stage don't error with "No files found." DuckDB's
+    // read_json_auto tolerates empty files but not missing prefixes.
+    try {
+      const sentinelKey = partitionKey(env.ANALYTICS_R2_PREFIX, table, null, isoDate, 0)
+      await env.ANALYTICS_R2.put(sentinelKey, new Uint8Array(0), {
+        httpMetadata: { contentType: 'application/x-ndjson' },
+        customMetadata: {
+          table: table.name,
+          mode: table.mode,
+          rows: '0',
+          sentinel: 'true',
+          exportedAt: new Date().toISOString(),
+        },
+      })
+    } catch (err) {
+      console.warn('[export] sentinel write failed', { table: table.name, err })
+    }
     return {
       table: table.name,
       status: 'skipped',

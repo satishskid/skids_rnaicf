@@ -73,11 +73,11 @@ COPY (
       WHEN age_months < 120 THEN '72-119'
       ELSE '120+'
     END AS age_months_band,
-    class_or_grade,
+    class,
     created_at
   FROM (
     SELECT
-      id, campaign_code, gender, class_or_grade, created_at,
+      id, campaign_code, gender, class, created_at,
       CAST((julianday(CURRENT_DATE) - julianday(dob)) / 30.4375 AS INTEGER) AS age_months
     FROM read_json_auto('s3://${bucket}/${rawPrefix}/children/**/*.jsonl', hive_partitioning=1)
   )
@@ -94,7 +94,15 @@ COPY (
     obs.body_region,
     obs.risk_level,
     obs.ai_annotations,
-    obs.clinician_disagreement,
+    -- Derived: clinician_disagreement = 1 when the doctor referred/retook
+    -- rather than approved. Computed from the JSON clinician_review blob
+    -- since observations has no materialised disagreement column. Returns
+    -- NULL when the observation has no review yet.
+    CASE
+      WHEN obs.clinician_review IS NULL THEN NULL
+      WHEN json_extract(obs.clinician_review, '$.decision') IN ('"refer"', '"retake"', '"correct"') THEN 1
+      ELSE 0
+    END AS clinician_disagreement,
     obs.screened_by,
     obs.device_id,
     obs.created_at,
