@@ -58,8 +58,11 @@ bucket_name = "skids-reports"
 # 10 min during 03:00–12:00 UTC (08:30–17:30 IST), the parent-facing window.
 # The scheduled handler short-circuits unless FEATURE_REPORT_PREWARM=1, so this
 # trigger is safe to leave on in all environments — flip the env var to enable.
-[triggers]
-crons = ["*/10 3-12 * * *"]
+#
+# DEFERRED: CF Free plan caps account-wide at 5 cron triggers, already used by
+# other workers. Re-enable after freeing slots (dash → Workers → Triggers).
+# [triggers]
+# crons = ["*/10 3-12 * * *"]
 
 # Phase 04 — service binding to @skids/analytics-worker for canonical query
 # execution. The worker is deployed separately (apps/analytics-worker). When

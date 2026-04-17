@@ -129,7 +129,7 @@ wrangler secret put ANTHROPIC_API_KEY   --name skids-api   # optional (tier 4)
 # override per-env with wrangler secret put if staging uses a different gateway.
 
 # Apply migration
-turso db shell skids-screen < packages/db/src/migrations/0002_ai_usage_extension.sql
+turso db shell skids-screen-v3 < packages/db/src/migrations/0002_ai_usage_extension.sql
 
 # Deploy
 pnpm --filter @skids/worker deploy
