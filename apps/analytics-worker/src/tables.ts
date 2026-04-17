@@ -21,7 +21,7 @@ export const EXPORT_TABLES: readonly ExportTableConfig[] = [
   { name: 'report_renders',          mode: 'incremental', partitionBy: null,            cursorCol: 'created_at' },
   { name: 'studies',                 mode: 'snapshot',    partitionBy: null },
   { name: 'consents',                mode: 'snapshot',    partitionBy: null },
-  { name: 'reviews',                 mode: 'incremental', partitionBy: null,            cursorCol: 'created_at' },
+  { name: 'reviews',                 mode: 'incremental', partitionBy: null,            cursorCol: 'reviewed_at' },
 ] as const
 
 export function findTable(name: string): ExportTableConfig | undefined {
