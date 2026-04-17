@@ -131,24 +131,29 @@ class BufferSink {
 /**
  * Write a single partition's rows to Parquet bytes. Returns the buffer
  * for the caller to upload.
+ *
+ * 2026-04-17 — NDJSON INTERIM. parquetjs-lite does not run correctly
+ * under CF Workers' nodejs_compat ("ParquetSchema is not a constructor"
+ * / "Statistics is not defined"). The writer would need node:stream +
+ * Buffer internals that the compat layer doesn't reliably expose for
+ * this library. Rather than fight the JS Parquet writer, we emit NDJSON
+ * from the Worker and let DuckDB convert to Parquet during the
+ * publishable stage (`read_json_auto` → `COPY … TO … (FORMAT PARQUET)`).
+ * Same R2 partition layout, same downstream contract — analysts using
+ * duckdb-repl.sh get proper Parquet via the publishable layer.
+ *
+ * The function name + Uint8Array return type stay so callers don't
+ * change. File extension at the R2 layer is `.jsonl`.
  */
 export async function writeParquetBytes(
   rows: ReadonlyArray<Record<string, unknown>>,
 ): Promise<Uint8Array> {
   if (rows.length === 0) return new Uint8Array(0)
-  // Dynamic import so typecheck doesn't demand the package at build time.
-  // Workers `nodejs_compat` picks it up at runtime. The `as unknown` cast
-  // is intentional — parquetjs-lite ships without types.
-  // @ts-expect-error parquetjs-lite has no .d.ts and is only present at runtime.
-  const pq = (await import('parquetjs-lite')) as unknown as ParquetModule
-  const schema = inferSchema(pq, rows[0])
-  const sink = new BufferSink()
-  const writer = await pq.ParquetWriter.openStream(schema, sink as unknown as MinimalWritable)
+  const lines: string[] = []
   for (const row of rows) {
-    await writer.appendRow(normaliseRow(row))
+    lines.push(JSON.stringify(normaliseRow(row)))
   }
-  await writer.close()
-  return sink.toBuffer()
+  return new TextEncoder().encode(lines.join('\n') + '\n')
 }
 
 /**
@@ -186,6 +191,8 @@ export function partitionKey(
     parts.push(`${table.partitionBy}=${partitionValue}`)
   }
   parts.push(`dt=${isoDate}`)
-  parts.push(`part-${String(partIndex + 1).padStart(4, '0')}.parquet`)
+  // NDJSON interim — see writeParquetBytes() comment. The publishable
+  // layer (DuckDB) converts to real Parquet files in publishable/<view>/.
+  parts.push(`part-${String(partIndex + 1).padStart(4, '0')}.jsonl`)
   return parts.join('/')
 }
