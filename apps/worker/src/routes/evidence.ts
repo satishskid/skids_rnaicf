@@ -17,11 +17,17 @@
 // doctor-inbox context endpoint is mounted in reviews.ts via
 // buildReviewContext() exported here for reuse.
 
-import { Hono } from 'hono'
+import { Hono, type Context } from 'hono'
 import type { Bindings, Variables } from '../index'
 import { logAudit } from './audit-log'
+import { collectChunks, type EvidenceChunk } from '@skids/evidence'
 
 export const evidenceRoutes = new Hono<{ Bindings: Bindings; Variables: Variables }>()
+
+// Separate Hono instance for the unauth'd bootstrap endpoint. Mounted in
+// src/index.ts outside the authMiddleware guard so first-time index
+// builds work before an admin web session exists.
+export const evidenceBootstrapRoutes = new Hono<{ Bindings: Bindings; Variables: Variables }>()
 
 const EMBED_MODEL = '@cf/baai/bge-small-en-v1.5'
 const MAX_TOP_K = 20
@@ -85,22 +91,139 @@ evidenceRoutes.get('/index-status', async (c) => {
   })
 })
 
+/**
+ * POST /api/evidence/rebuild
+ *
+ * Admin-only, synchronous. Embeds the full corpus (packages/evidence
+ * collectChunks) with Workers AI and upserts into EVIDENCE_VEC. Runs
+ * inside the Worker so no external CF API token is needed — all
+ * bindings are already present. Bumps evidence_index_version on
+ * success.
+ *
+ * Running this on ~150 chunks takes well under the 15 min Paid CPU
+ * budget (20-chunk embed batches × ~500ms + 50-vector upsert batches).
+ * Returns a rebuild summary.
+ */
 evidenceRoutes.post('/rebuild', async (c) => {
   const role = c.get('userRole')
   if (role !== 'admin') return c.json({ error: 'admin role required' }, 403)
-  const db = c.get('db')
-  await logAudit(db, {
-    userId: c.get('userId') ?? 'admin',
-    action: 'evidence.rebuild.requested',
-    entityType: 'evidence_index',
-    details: JSON.stringify({ requestedAt: new Date().toISOString() }),
-  })
-  return c.json({
-    message: 'Rebuild runs out-of-band. Execute:',
-    command: 'pnpm -w tsx scripts/build-evidence-index.ts',
-    envRequired: ['CF_ACCOUNT_ID', 'CF_API_TOKEN', 'TURSO_URL', 'TURSO_AUTH_TOKEN'],
-  }, 202)
+  return runRebuild(c)
 })
+
+evidenceBootstrapRoutes.post('/rebuild', async (c) => {
+  const rebuildSecret = c.env.EVIDENCE_REBUILD_SECRET
+  const providedSecret = c.req.header('x-evidence-rebuild-secret')
+  if (!rebuildSecret || !providedSecret || providedSecret !== rebuildSecret) {
+    return c.json({ error: 'invalid or missing X-Evidence-Rebuild-Secret' }, 403)
+  }
+  return runRebuild(c)
+})
+
+type EvidenceContext = Context<{ Bindings: Bindings; Variables: Variables }>
+
+async function runRebuild(c: EvidenceContext) {
+  if (!c.env.EVIDENCE_VEC) return c.json({ error: 'EVIDENCE_VEC binding missing' }, 500)
+  if (!c.env.AI) return c.json({ error: 'Workers AI binding missing' }, 500)
+
+  const db = c.get('db')
+  const userId = c.get('userId') ?? 'bootstrap'
+  const chunks = collectChunks()
+  if (chunks.length === 0) return c.json({ error: 'no chunks to index' }, 500)
+
+  const t0 = Date.now()
+  let embedded = 0
+  let upserted = 0
+  const errors: string[] = []
+
+  const EMBED_BATCH = 20
+  const UPSERT_BATCH = 50
+  const pendingVectors: Array<{
+    id: string
+    values: number[]
+    metadata: Record<string, VectorizeVectorMetadata>
+  }> = []
+
+  for (let i = 0; i < chunks.length; i += EMBED_BATCH) {
+    const batch = chunks.slice(i, i + EMBED_BATCH)
+    try {
+      const aiOut = await c.env.AI.run(EMBED_MODEL, { text: batch.map((b) => b.text) }) as { data?: number[][] }
+      const vectors = aiOut.data ?? []
+      if (vectors.length !== batch.length) {
+        errors.push(`embed batch ${i} returned ${vectors.length}/${batch.length}`)
+        continue
+      }
+      for (let j = 0; j < batch.length; j++) {
+        pendingVectors.push({
+          id: batch[j].id,
+          values: vectors[j],
+          metadata: chunkMetadata(batch[j]),
+        })
+      }
+      embedded += batch.length
+    } catch (err) {
+      errors.push(`embed batch ${i}: ${errorMessage(err)}`)
+    }
+  }
+
+  for (let i = 0; i < pendingVectors.length; i += UPSERT_BATCH) {
+    const slice = pendingVectors.slice(i, i + UPSERT_BATCH)
+    try {
+      await c.env.EVIDENCE_VEC.upsert(slice)
+      upserted += slice.length
+    } catch (err) {
+      errors.push(`upsert batch ${i}: ${errorMessage(err)}`)
+    }
+  }
+
+  if (upserted > 0) {
+    const categories = [...new Set(chunks.map((c2) => c2.category))]
+    await db.execute({
+      sql: `INSERT INTO evidence_index_version (id, version, chunk_count, categories_json, built_at, built_by)
+            VALUES (1,
+                    COALESCE((SELECT version FROM evidence_index_version WHERE id = 1), 0) + 1,
+                    ?, ?, datetime('now'), ?)
+            ON CONFLICT(id) DO UPDATE
+              SET version = version + 1,
+                  chunk_count = excluded.chunk_count,
+                  categories_json = excluded.categories_json,
+                  built_at = datetime('now'),
+                  built_by = excluded.built_by`,
+      args: [upserted, JSON.stringify(categories), userId],
+    })
+  }
+
+  await logAudit(db, {
+    userId,
+    action: 'evidence.rebuild.completed',
+    entityType: 'evidence_index',
+    details: JSON.stringify({ chunks: chunks.length, embedded, upserted, errors: errors.length, ms: Date.now() - t0 }),
+  })
+
+  return c.json({
+    chunks: chunks.length,
+    embedded,
+    upserted,
+    errors,
+    ms: Date.now() - t0,
+  }, errors.length === 0 ? 200 : 207)
+}
+
+function chunkMetadata(chunk: EvidenceChunk): Record<string, VectorizeVectorMetadata> {
+  return {
+    category: chunk.category,
+    module_type: chunk.module_type ?? '',
+    age_min: chunk.age_band_months?.min ?? -1,
+    age_max: chunk.age_band_months?.max ?? -1,
+    lang: chunk.lang ?? 'en',
+    title: chunk.title ?? '',
+    source: chunk.source,
+    text_preview: chunk.text.slice(0, 280),
+  }
+}
+
+function errorMessage(err: unknown): string {
+  return err instanceof Error ? err.message.slice(0, 200) : String(err).slice(0, 200)
+}
 
 /**
  * Shared evidence search. Re-used by /api/reviews/:id/context so the
