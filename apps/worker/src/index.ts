@@ -41,6 +41,7 @@ import { adminEmbeddingsRoutes } from './routes/admin-embeddings'
 import { modelsRoutes } from './routes/models'
 import { onDeviceAiRoutes } from './routes/on-device-ai'
 import { analyticsRoutes } from './routes/analytics'
+import { evidenceRoutes } from './routes/evidence'
 import { createTursoClient } from '@skids/db'
 import { createAuth } from './auth'
 import { authMiddleware, requireRole } from './middleware/auth'
@@ -103,6 +104,10 @@ export type Bindings = {
   // class (open beta). Absent deployments leave the pending row for ops
   // to drain via scripts/publish-model.sh + a follow-up wrangler push.
   SANDBOX_AI?: { fetch: (request: Request) => Promise<Response> }
+  // Phase 07 — Vectorize evidence RAG index (skids-evidence, 384/cosine).
+  EVIDENCE_VEC?: VectorizeIndex
+  // '1' enables /api/evidence/* + /api/reviews/:id/context evidence half.
+  FEATURE_EVIDENCE_RAG?: string
 }
 
 // Variables set per-request
@@ -341,6 +346,13 @@ app.route('/api/on-device-ai', onDeviceAiRoutes)
 app.use('/api/analytics', authMiddleware)
 app.use('/api/analytics/*', authMiddleware)
 app.route('/api/analytics', analyticsRoutes)
+
+// Phase 07 — Evidence RAG. Gated by FEATURE_EVIDENCE_RAG inside the
+// routes. Search + index-status available to any authenticated clinical
+// role; /rebuild self-checks admin.
+app.use('/api/evidence', authMiddleware)
+app.use('/api/evidence/*', authMiddleware)
+app.route('/api/evidence', evidenceRoutes)
 
 // Root
 app.get('/', (c) => {

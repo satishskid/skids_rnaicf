@@ -16,6 +16,10 @@ FEATURE_DUCKDB_ANALYTICS = "1"
 # writes through ScreeningObservationWorkflow; anything else keeps the
 # inline path so a bad deploy doesn't block the nurse.
 FEATURE_USE_WORKFLOW = "0"
+# Phase 07 — Evidence RAG. '1' enables /api/evidence/* + the unified
+# /api/reviews/:id/context endpoint. Flip after the Vectorize index has
+# been populated by scripts/build-evidence-index.ts (RUNBOOK).
+FEATURE_EVIDENCE_RAG = "0"
 
 # Turso + Better Auth secrets are set via:
 #   wrangler secret put TURSO_URL
@@ -130,3 +134,13 @@ max_concurrency = 1
 queue = "analytics-trigger-dlq"
 max_batch_size = 10
 max_concurrency = 1
+
+# Phase 07 — Evidence RAG.
+#
+# bge-small-en-v1.5 lands 384-dim vectors. Cosine metric matches the
+# similarity search in packages/shared/src/embedding-text.ts. Populate
+# with scripts/build-evidence-index.ts (tsx), or trigger via POST
+# /api/evidence/rebuild once it's wired to a queue in a follow-up.
+[[vectorize]]
+binding = "EVIDENCE_VEC"
+index_name = "skids-evidence"

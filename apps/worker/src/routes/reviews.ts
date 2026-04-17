@@ -2,6 +2,7 @@
 import { Hono } from 'hono'
 import type { Bindings, Variables } from '../index'
 import type { InValue } from '@libsql/client'
+import { evidenceSearch } from './evidence'
 
 export const reviewRoutes = new Hono<{ Bindings: Bindings; Variables: Variables }>()
 
@@ -88,3 +89,77 @@ reviewRoutes.post('/', async (c) => {
 
   return c.json({ id, message: 'Review saved' }, 201)
 })
+
+/**
+ * Phase 07 — unified context endpoint for the doctor inbox expand view.
+ *
+ * Fans out the evidence RAG search and the similar-cases search in
+ * parallel and returns a merged envelope. Both sides degrade gracefully:
+ * if EVIDENCE_VEC is not bound or the observation lacks an embedding,
+ * the missing array is returned empty and the UI falls back to whatever
+ * it has.
+ */
+reviewRoutes.get('/:id/context', async (c) => {
+  const observationId = c.req.param('id')
+  const topKEvidence = Math.min(Math.max(Number(c.req.query('topK') ?? '5'), 1), 10)
+  const topKSimilar = Math.min(Math.max(Number(c.req.query('topSimilar') ?? '5'), 1), 10)
+
+  const db = c.get('db')
+  const obsRes = await db.execute({
+    sql: `SELECT id, module_type, body_region, ai_annotations, annotation_data, risk_level, embedding
+          FROM observations WHERE id = ? LIMIT 1`,
+    args: [observationId],
+  })
+  if (obsRes.rows.length === 0) return c.json({ error: 'Observation not found' }, 404)
+  const obs = obsRes.rows[0] as Record<string, unknown>
+
+  // Build the RAG query from whatever the observation has. Falls back to
+  // module + body_region so we always have something to embed.
+  const annotation = typeof obs.annotation_data === 'string'
+    ? safeParse<{ summary?: string }>(obs.annotation_data as string, {})
+    : {}
+  const ragQuery = annotation.summary
+    ?? `${obs.module_type ?? ''} ${obs.body_region ?? ''}`.trim()
+    ?? observationId
+
+  const [evidence, similarCases] = await Promise.all([
+    evidenceSearch(c.env, ragQuery, topKEvidence).catch(() => []),
+    fetchSimilarCases(c, observationId, topKSimilar).catch(() => []),
+  ])
+
+  return c.json({
+    observationId,
+    query: ragQuery,
+    evidence,
+    similarCases,
+  })
+})
+
+function safeParse<T>(json: string, fallback: T): T {
+  try { return JSON.parse(json) as T } catch { return fallback }
+}
+
+async function fetchSimilarCases(
+  c: { env: Bindings; req: { url: string; raw: Request } },
+  observationId: string,
+  topK: number
+): Promise<Array<{ id: string; score: number }>> {
+  // Reuse /api/similarity/observations via internal fetch so we inherit
+  // its feature flag + auth + audit. The POST body mirrors the public
+  // shape; we pass the current request's auth header through.
+  const url = new URL(c.req.url)
+  url.pathname = '/api/similarity/observations'
+  url.search = ''
+  const res = await fetch(url.toString(), {
+    method: 'POST',
+    headers: {
+      'content-type': 'application/json',
+      cookie: c.req.raw.headers.get('cookie') ?? '',
+      authorization: c.req.raw.headers.get('authorization') ?? '',
+    },
+    body: JSON.stringify({ observationId, limit: topK }),
+  })
+  if (!res.ok) return []
+  const data = await res.json() as { results?: Array<{ id: string; score: number }> }
+  return data.results ?? []
+}
