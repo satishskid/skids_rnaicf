@@ -15,11 +15,17 @@ FEATURE_DUCKDB_ANALYTICS = "1"
 # Phase 05 — Workflows + Queues rollout flag. '1' routes observation
 # writes through ScreeningObservationWorkflow; anything else keeps the
 # inline path so a bad deploy doesn't block the nurse.
-FEATURE_USE_WORKFLOW = "0"
+#
+# Enabled 2026-04-17 after end-to-end smoke: synthetic observation ran
+# persist → quality-gate → embed → enqueue-second-opinion → await-review
+# successfully in prod (workflow_events populated, all steps <700ms).
+# Rollback: set to "0" and redeploy. Existing in-flight workflows
+# continue regardless (old observations still drain).
+FEATURE_USE_WORKFLOW = "1"
 # Phase 07 — Evidence RAG. '1' enables /api/evidence/* + the unified
-# /api/reviews/:id/context endpoint. Flip after the Vectorize index has
-# been populated by scripts/build-evidence-index.ts (RUNBOOK).
-FEATURE_EVIDENCE_RAG = "0"
+# /api/reviews/:id/context endpoint. Index populated on 2026-04-17 with
+# 147 chunks (condition/mchat/module-education/parent-education).
+FEATURE_EVIDENCE_RAG = "1"
 
 # Turso + Better Auth secrets are set via:
 #   wrangler secret put TURSO_URL

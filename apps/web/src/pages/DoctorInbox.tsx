@@ -26,6 +26,7 @@ import { LoadingSpinner } from '../components/LoadingSpinner'
 import { EmptyState } from '../components/EmptyState'
 import { MedicalDisclaimer } from '../components/MedicalDisclaimer'
 import { ConfidenceBadge } from '../components/ConfidenceBadge'
+import { ObservationContextPanel } from '../components/ObservationContextPanel'
 import { useApi } from '../lib/hooks'
 import { apiCall } from '../lib/api'
 import { useAuth } from '../lib/auth'
@@ -1155,6 +1156,9 @@ function ObservationCard({
 
       {/* Evidence images */}
       <EvidenceImages obs={obs} />
+
+      {/* Phase 07 — evidence + similar cases panel (lazy-loaded on expand) */}
+      <ObservationContextPanel observationId={obs.id} />
 
       {/* Existing review display */}
       {existingReview && (

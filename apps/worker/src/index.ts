@@ -41,7 +41,7 @@ import { adminEmbeddingsRoutes } from './routes/admin-embeddings'
 import { modelsRoutes } from './routes/models'
 import { onDeviceAiRoutes } from './routes/on-device-ai'
 import { analyticsRoutes } from './routes/analytics'
-import { evidenceRoutes } from './routes/evidence'
+import { evidenceRoutes, evidenceBootstrapRoutes } from './routes/evidence'
 import { createTursoClient } from '@skids/db'
 import { createAuth } from './auth'
 import { authMiddleware, requireRole } from './middleware/auth'
@@ -108,6 +108,9 @@ export type Bindings = {
   EVIDENCE_VEC?: VectorizeIndex
   // '1' enables /api/evidence/* + /api/reviews/:id/context evidence half.
   FEATURE_EVIDENCE_RAG?: string
+  // One-shot secret for the initial index rebuild via /api/evidence/rebuild
+  // before a web admin session exists. Rotate after bootstrap.
+  EVIDENCE_REBUILD_SECRET?: string
 }
 
 // Variables set per-request
@@ -353,6 +356,11 @@ app.route('/api/analytics', analyticsRoutes)
 app.use('/api/evidence', authMiddleware)
 app.use('/api/evidence/*', authMiddleware)
 app.route('/api/evidence', evidenceRoutes)
+
+// Phase 07 — unauth'd bootstrap endpoint for first-time index population.
+// POST /api/evidence-bootstrap/rebuild requires X-Evidence-Rebuild-Secret.
+// Rotate/remove EVIDENCE_REBUILD_SECRET after bootstrap.
+app.route('/api/evidence-bootstrap', evidenceBootstrapRoutes)
 
 // Root
 app.get('/', (c) => {
