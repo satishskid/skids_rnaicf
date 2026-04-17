@@ -120,10 +120,9 @@ jobs:
 
       - name: Split publishable SQL into per-statement runner
         run: |
-          # Use a separate step so the multi-line Python heredoc never
-          # contains `${{` literals (GitHub's YAML parser scans the whole
-          # run: body for expression syntax). This step writes the runner;
-          # the next one executes it.
+          # Runner lives in scripts/ so the workflow YAML never contains
+          # a GitHub-expression-lookalike inside a heredoc. See the
+          # script source for why we split rather than run one DuckDB.
           python3 scripts/split-publishable-sql.py /tmp/publishable.sql /tmp/statements.sh
 
       - name: Execute DuckDB script (per-statement, tolerant)
