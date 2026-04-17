@@ -7,6 +7,43 @@ import { embedAndStoreBackground } from '../lib/embeddings'
 
 export const observationRoutes = new Hono<{ Bindings: Bindings; Variables: Variables }>()
 
+// Phase 05 — kick off the durable workflow when the rollout flag is on and
+// the runtime has a workflow binding. Returns the instance id on success,
+// or null to signal the caller to fall back to the inline insert path.
+async function kickoffWorkflow(
+  env: Bindings,
+  payload: {
+    id: string
+    sessionId: string
+    childId: string
+    campaignCode: string
+    moduleType: string
+    bodyRegion?: string | null
+    mediaUrl?: string | null
+    mediaUrls?: string[] | null
+    mediaType?: string | null
+    captureMetadata?: unknown
+    aiAnnotations?: unknown
+    annotationData?: unknown
+    riskLevel?: number
+    screenedBy?: string
+    deviceId?: string | null
+    timestamp?: string
+    confidence?: number
+  }
+): Promise<string | null> {
+  if (env.FEATURE_USE_WORKFLOW !== '1' || !env.SCREENING_WF) return null
+  try {
+    const instance = await env.SCREENING_WF.create({
+      params: { observation: payload },
+    })
+    return instance.id
+  } catch (err) {
+    console.warn('[observations] workflow kickoff failed — falling back to inline', err)
+    return null
+  }
+}
+
 // List observations for a campaign
 observationRoutes.get('/', async (c) => {
   const db = c.get('db')
@@ -81,6 +118,12 @@ observationRoutes.post('/', async (c) => {
   const db = c.get('db')
   const body = await c.req.json()
   const id = body.id || crypto.randomUUID()
+
+  // Phase 05 — durable workflow path. Null result means "fallback inline".
+  const workflowId = await kickoffWorkflow(c.env, { ...body, id })
+  if (workflowId) {
+    return c.json({ id, workflowId, message: 'Observation enqueued for durable workflow' }, 202)
+  }
 
   await db.execute({
     sql: `INSERT INTO observations (id, session_id, child_id, campaign_code, module_type, body_region, media_url, media_urls, media_type, capture_metadata, ai_annotations, annotation_data, risk_level, screened_by, device_id, timestamp, synced_at)
@@ -298,6 +341,36 @@ observationRoutes.patch('/:id/doctor-review', async (c) => {
     })
   } catch {
     // Non-critical — training sample creation can fail without breaking review
+  }
+
+  // Phase 05 — if the observation is bound to a live workflow, send the
+  // doctor-review event so the await-review step resolves. Failure is
+  // non-fatal; workflow will time out after 72h and continue.
+  try {
+    const wfRow = await db.execute({
+      sql: 'SELECT workflow_id FROM observations WHERE id = ?',
+      args: [observationId],
+    })
+    const workflowId = wfRow.rows[0]?.workflow_id as string | null | undefined
+    if (workflowId && c.env.SCREENING_WF) {
+      const instance = await c.env.SCREENING_WF.get(workflowId)
+      // sendEvent is on the runtime but not yet typed in workers-types@4.2025
+      const maybeInstance = instance as unknown as {
+        sendEvent?: (opts: { type: string; payload: unknown }) => Promise<void>
+      }
+      if (typeof maybeInstance.sendEvent === 'function') {
+        await maybeInstance.sendEvent({
+          type: 'doctor-review',
+          payload: {
+            observationId,
+            status: body.status,
+            riskLevel: body.riskLevel ?? 'normal',
+          },
+        })
+      }
+    }
+  } catch (err) {
+    console.warn('[observations.patch] workflow sendEvent failed', err)
   }
 
   return c.json({

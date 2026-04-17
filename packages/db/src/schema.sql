@@ -77,7 +77,9 @@ CREATE TABLE IF NOT EXISTS observations (
   device_id TEXT,
   timestamp TEXT NOT NULL,
   created_at TEXT DEFAULT (datetime('now')),
-  synced_at TEXT
+  synced_at TEXT,
+  -- Phase 05 — Cloudflare Workflows instance id (ScreeningObservationWorkflow)
+  workflow_id TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_obs_campaign ON observations(campaign_code);
 CREATE INDEX IF NOT EXISTS idx_obs_child ON observations(child_id);
@@ -86,6 +88,24 @@ CREATE INDEX IF NOT EXISTS idx_obs_unsynced ON observations(synced_at) WHERE syn
 CREATE INDEX IF NOT EXISTS idx_obs_embedding
   ON observations(libsql_vector_idx(embedding));
 CREATE INDEX IF NOT EXISTS idx_obs_embedded_at ON observations(embedded_at);
+CREATE INDEX IF NOT EXISTS idx_obs_workflow ON observations(workflow_id);
+
+-- Phase 05 — per-step workflow event log for ScreeningObservationWorkflow.
+-- status: 'started' | 'ok' | 'error' | 'skipped' | 'timeout'
+CREATE TABLE IF NOT EXISTS workflow_events (
+  id TEXT PRIMARY KEY,
+  observation_id TEXT NOT NULL,
+  workflow_id TEXT NOT NULL,
+  step_name TEXT NOT NULL,
+  status TEXT NOT NULL,
+  ms INTEGER,
+  error TEXT,
+  created_at TEXT DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_wfe_obs ON workflow_events(observation_id);
+CREATE INDEX IF NOT EXISTS idx_wfe_workflow ON workflow_events(workflow_id);
+CREATE INDEX IF NOT EXISTS idx_wfe_created ON workflow_events(created_at);
+CREATE INDEX IF NOT EXISTS idx_wfe_status ON workflow_events(status);
 
 -- Doctor Reviews
 CREATE TABLE IF NOT EXISTS reviews (
