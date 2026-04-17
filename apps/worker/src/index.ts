@@ -90,6 +90,14 @@ export type Bindings = {
   ANALYTICS_SVC?: Fetcher
   // '1' enables /api/analytics/run. Default off; flip via wrangler.toml.
   FEATURE_DUCKDB_ANALYTICS?: string
+  // Phase 05 — Cloudflare Workflows + Queues.
+  SCREENING_WF?: Workflow<import('./workflows/screening-observation').ScreeningObservationParams>
+  SANDBOX_PDF_Q?: Queue<import('./queues').SandboxPdfMessage>
+  SANDBOX_2ND_OPINION_Q?: Queue<import('./queues').SandboxSecondOpinionMessage>
+  ANALYTICS_Q?: Queue<import('./queues').AnalyticsTriggerMessage>
+  // '1' routes observations through ScreeningObservationWorkflow. Default
+  // off — inline insert path remains authoritative until dashboards green.
+  FEATURE_USE_WORKFLOW?: string
 }
 
 // Variables set per-request
@@ -339,10 +347,53 @@ app.get('/', (c) => {
   })
 })
 
+// Phase 05 — Cloudflare Workflows class export. Runtime binds this via
+// [[workflows]] in wrangler.toml; re-exported under its original name so
+// the workflow control plane can instantiate it.
+export { ScreeningObservationWorkflow } from './workflows/screening-observation'
+
+// Phase 05 — Queue consumer entrypoint. Dispatches by batch.queue name so
+// every consumer (including DLQs) can share one worker runtime.
+import { handleSandboxPdfBatch } from './queues/consumers/sandbox-pdf'
+import { handleSandboxSecondOpinionBatch } from './queues/consumers/sandbox-second-opinion'
+import { handleAnalyticsTriggerBatch } from './queues/consumers/analytics-trigger'
+import { handleDlqBatch } from './queues/dlq'
+
+async function queueHandler(
+  batch: MessageBatch<unknown>,
+  env: Bindings,
+  _ctx: ExecutionContext
+): Promise<void> {
+  switch (batch.queue) {
+    case 'sandbox-pdf':
+      return handleSandboxPdfBatch(
+        batch as MessageBatch<import('./queues').SandboxPdfMessage>,
+        env,
+      )
+    case 'sandbox-second-opinion':
+      return handleSandboxSecondOpinionBatch(
+        batch as MessageBatch<import('./queues').SandboxSecondOpinionMessage>,
+        env,
+      )
+    case 'analytics-trigger':
+      return handleAnalyticsTriggerBatch(
+        batch as MessageBatch<import('./queues').AnalyticsTriggerMessage>,
+        env,
+      )
+    case 'sandbox-pdf-dlq':
+    case 'sandbox-2nd-opinion-dlq':
+    case 'analytics-trigger-dlq':
+      return handleDlqBatch(batch, env, batch.queue)
+    default:
+      console.warn('[queue] unknown queue', batch.queue)
+  }
+}
+
 // Default export upgraded to the object form to attach the Phase 03 scheduled
-// handler alongside fetch. Keeps `app.fetch` wiring intact.
+// handler alongside fetch, and the Phase 05 queue() consumer.
 export default {
   fetch: app.fetch,
   scheduled: scheduledHandler,
+  queue: queueHandler,
 } satisfies ExportedHandler<Bindings>
 export type AppType = typeof app

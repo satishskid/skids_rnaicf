@@ -12,6 +12,10 @@ AI_GATEWAY_ID = "skids-screen"
 # Phase 04 — DuckDB analytics feature flag. '1' to enable /api/analytics/run.
 # Default off so the service binding is not required for cold staging.
 FEATURE_DUCKDB_ANALYTICS = "1"
+# Phase 05 — Workflows + Queues rollout flag. '1' routes observation
+# writes through ScreeningObservationWorkflow; anything else keeps the
+# inline path so a bad deploy doesn't block the nurse.
+FEATURE_USE_WORKFLOW = "0"
 
 # Turso + Better Auth secrets are set via:
 #   wrangler secret put TURSO_URL
@@ -67,3 +71,62 @@ crons = ["*/10 3-12 * * *"]
 [[services]]
 binding = "ANALYTICS_SVC"
 service = "skids-analytics"
+
+# Phase 05 — durable screening workflow + fan-out queues.
+#
+# FEATURE_USE_WORKFLOW (env var below) gates the observations.ts POST path:
+# when '1' the worker calls SCREENING_WF.create() instead of doing the
+# insert inline. Queue producers are advisory (workflow fan-out). Queue
+# consumers run in this same worker via the top-level `queue()` export.
+[[workflows]]
+name = "screening-observation"
+binding = "SCREENING_WF"
+class_name = "ScreeningObservationWorkflow"
+
+[[queues.producers]]
+binding = "SANDBOX_PDF_Q"
+queue = "sandbox-pdf"
+
+[[queues.producers]]
+binding = "SANDBOX_2ND_OPINION_Q"
+queue = "sandbox-second-opinion"
+
+[[queues.producers]]
+binding = "ANALYTICS_Q"
+queue = "analytics-trigger"
+
+[[queues.consumers]]
+queue = "sandbox-pdf"
+max_batch_size = 5
+max_concurrency = 10
+max_retries = 3
+dead_letter_queue = "sandbox-pdf-dlq"
+
+[[queues.consumers]]
+queue = "sandbox-second-opinion"
+max_batch_size = 2
+max_concurrency = 5
+max_retries = 3
+dead_letter_queue = "sandbox-2nd-opinion-dlq"
+
+[[queues.consumers]]
+queue = "analytics-trigger"
+max_batch_size = 20
+max_concurrency = 2
+max_retries = 3
+dead_letter_queue = "analytics-trigger-dlq"
+
+[[queues.consumers]]
+queue = "sandbox-pdf-dlq"
+max_batch_size = 10
+max_concurrency = 1
+
+[[queues.consumers]]
+queue = "sandbox-2nd-opinion-dlq"
+max_batch_size = 10
+max_concurrency = 1
+
+[[queues.consumers]]
+queue = "analytics-trigger-dlq"
+max_batch_size = 10
+max_concurrency = 1
