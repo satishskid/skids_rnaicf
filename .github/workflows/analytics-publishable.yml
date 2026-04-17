@@ -118,58 +118,19 @@ jobs:
             exit 1
           fi
 
+      - name: Split publishable SQL into per-statement runner
+        run: |
+          # Use a separate step so the multi-line Python heredoc never
+          # contains `${{` literals (GitHub's YAML parser scans the whole
+          # run: body for expression syntax). This step writes the runner;
+          # the next one executes it.
+          python3 scripts/split-publishable-sql.py /tmp/publishable.sql /tmp/statements.sh
+
       - name: Execute DuckDB script (per-statement, tolerant)
         run: |
-          # Echo the effective script header for debugging (credentials
-          # masked by GitHub's auto-redaction).
           echo "::group::Effective DuckDB script (head)"
           head -6 /tmp/publishable.sql | sed 's/\(s3_[a-z_]*=\x27\)[^\x27]*\x27/\1***\x27/g'
           echo "::endgroup::"
-
-          # Split into the preamble (SET/INSTALL/LOAD) + individual COPY
-          # statements so one table missing in v1/ doesn't abort the run.
-          # The preamble ends at the first COPY keyword; split at `;COPY `.
-          python3 <<'PY' > /tmp/statements.sh
-          import re, sys, json
-          sql = open('/tmp/publishable.sql').read()
-          # Split at semicolons followed by optional whitespace then end-
-          # of-statement boundaries. Preserve each COPY as a single stmt.
-          # Preamble = everything before the first "COPY ".
-          idx = sql.find('COPY ')
-          if idx < 0:
-            print('echo "no COPY statements"', file=sys.stderr); sys.exit(1)
-          preamble = sql[:idx].strip()
-          rest = sql[idx:]
-          # Split rest by finding each "COPY " at column 0 or after ";\n".
-          chunks = re.split(r';\s*\n(?=COPY )', rest)
-          # Last chunk still ends with `;` — strip trailing semicolons.
-          chunks = [c.rstrip().rstrip(';').strip() for c in chunks if c.strip()]
-          print('set +e')
-          print('PREAMBLE=' + json.dumps(preamble))
-          for i, c in enumerate(chunks):
-            # Extract the TO 's3://...' target for a readable log label.
-            m = re.search(r"TO\s+'([^']+)'", c)
-            label = m.group(1) if m else f'statement-{i}'
-            print(f'echo "::group::COPY {label}"')
-            # Run each COPY in its own DuckDB process, combined with the
-            # preamble so the S3 credentials + endpoint are in scope.
-            print('duckdb :memory: <<SQL')
-            print('$PREAMBLE')
-            print(c + ';')
-            print('SQL')
-            print('rc=$?')
-            print(f'echo "exit code: $rc"')
-            print(f'if [[ $rc -ne 0 ]]; then failed=$((failed + 1)); fi')
-            print('echo "::endgroup::"')
-          print('echo "---"')
-          print('echo "failed statements: ${failed:-0}"')
-          print('if [[ ${failed:-0} -gt 0 ]]; then')
-          print('  echo "::warning::${failed} publishable statements failed (likely empty source tables)."')
-          print('fi')
-          print('# Only fail the job if EVERY statement failed — partial success is ok.')
-          print(f'if [[ ${{failed:-0}} -ge {len(chunks)} ]]; then exit 1; fi')
-          PY
-
           bash /tmp/statements.sh
 
       - name: Verify publishable Parquet was written
