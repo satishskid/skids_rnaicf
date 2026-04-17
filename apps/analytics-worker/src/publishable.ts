@@ -79,7 +79,7 @@ COPY (
     SELECT
       id, campaign_code, gender, class_or_grade, created_at,
       CAST((julianday(CURRENT_DATE) - julianday(dob)) / 30.4375 AS INTEGER) AS age_months
-    FROM read_parquet('s3://${bucket}/${rawPrefix}/children/**/*.parquet', hive_partitioning=1)
+    FROM read_json_auto('s3://${bucket}/${rawPrefix}/children/**/*.jsonl', hive_partitioning=1)
   )
 ) TO 's3://${bucket}/${pubPrefix}/publishable_children/dt=${dt}/part-0001.parquet' (FORMAT PARQUET, COMPRESSION ZSTD);
 
@@ -100,7 +100,7 @@ COPY (
     obs.created_at,
     c.age_months_band,
     c.gender
-  FROM read_parquet('s3://${bucket}/${rawPrefix}/observations/**/*.parquet', hive_partitioning=1) obs
+  FROM read_json_auto('s3://${bucket}/${rawPrefix}/observations/**/*.jsonl', hive_partitioning=1) obs
   LEFT JOIN read_parquet('s3://${bucket}/${pubPrefix}/publishable_children/dt=${dt}/*.parquet') c
     ON c.id = obs.child_id
 ) TO 's3://${bucket}/${pubPrefix}/publishable_observations/dt=${dt}/part-0001.parquet' (FORMAT PARQUET, COMPRESSION ZSTD);
@@ -111,7 +111,7 @@ COPY (
     id, campaign_code, model, provider, tier, module_type,
     input_tokens, output_tokens, latency_ms,
     cost_usd, cost_usd_micros, cached, created_at
-  FROM read_parquet('s3://${bucket}/${rawPrefix}/ai_usage/**/*.parquet', hive_partitioning=1)
+  FROM read_json_auto('s3://${bucket}/${rawPrefix}/ai_usage/**/*.jsonl', hive_partitioning=1)
 ) TO 's3://${bucket}/${pubPrefix}/publishable_ai_usage/dt=${dt}/part-0001.parquet' (FORMAT PARQUET, COMPRESSION ZSTD);
 
 -- 4) Publishable reviews: no PHI columns, keep latency metrics.
@@ -119,7 +119,7 @@ COPY (
   SELECT
     id, observation_id, reviewer_id,
     status, decision, ms_to_review, created_at
-  FROM read_parquet('s3://${bucket}/${rawPrefix}/reviews/**/*.parquet', hive_partitioning=1)
+  FROM read_json_auto('s3://${bucket}/${rawPrefix}/reviews/**/*.jsonl', hive_partitioning=1)
 ) TO 's3://${bucket}/${pubPrefix}/publishable_reviews/dt=${dt}/part-0001.parquet' (FORMAT PARQUET, COMPRESSION ZSTD);
 
 -- 5) Publishable audit_log: keep action + timestamp only.
@@ -130,7 +130,7 @@ COPY (
     action,
     entity_type,
     created_at
-  FROM read_parquet('s3://${bucket}/${rawPrefix}/audit_log/**/*.parquet', hive_partitioning=1)
+  FROM read_json_auto('s3://${bucket}/${rawPrefix}/audit_log/**/*.jsonl', hive_partitioning=1)
 ) TO 's3://${bucket}/${pubPrefix}/publishable_audit_log/dt=${dt}/part-0001.parquet' (FORMAT PARQUET, COMPRESSION ZSTD);
 `.trim()
 }

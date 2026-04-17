@@ -151,7 +151,7 @@ async function exportOne(
         i,
       )
       await env.ANALYTICS_R2.put(key, bytes, {
-        httpMetadata: { contentType: 'application/vnd.apache.parquet' },
+        httpMetadata: { contentType: 'application/x-ndjson' },
         customMetadata: {
           table: table.name,
           mode: table.mode,

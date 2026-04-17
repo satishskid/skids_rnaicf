@@ -72,6 +72,47 @@ app.get('/queries', c => c.json({ queries: Object.values(QUERIES) }))
  * for a given dump. Designed for the companion job / ops CLI. The ISO
  * date defaults to today (UTC).
  */
+/**
+ * POST /trigger-export
+ *
+ * Admin-secret-gated manual trigger for the nightly Turso→R2 Parquet
+ * export that the scheduled handler runs. Header:
+ *   X-Export-Trigger-Secret: <matches env.EXPORT_TRIGGER_SECRET>
+ *
+ * Used for bootstrapping + ad-hoc back-fill before the first natural
+ * 20:30 UTC cron fires. Rotate/remove EXPORT_TRIGGER_SECRET once the
+ * daily cadence is established.
+ */
+app.post('/trigger-export', async c => {
+  const provided = c.req.header('x-export-trigger-secret')
+  const required = (c.env as unknown as Record<string, unknown>).EXPORT_TRIGGER_SECRET as string | undefined
+  if (!required || !provided || provided !== required) {
+    return c.json({ error: 'invalid or missing X-Export-Trigger-Secret' }, 403)
+  }
+  const t0 = Date.now()
+  try {
+    const { isoDate, results, cursorUpdates } = await runNightlyExport(c.env)
+    const totalRows = results.reduce((a, r) => a + r.rows, 0)
+    const totalBytes = results.reduce((a, r) => a + r.bytes, 0)
+    return c.json({
+      ok: true,
+      isoDate,
+      ms: Date.now() - t0,
+      tables: results.length,
+      totalRows,
+      totalBytes,
+      cursorUpdates: cursorUpdates.length,
+      results,
+    })
+  } catch (err) {
+    return c.json({
+      ok: false,
+      error: err instanceof Error ? err.message.slice(0, 500) : String(err).slice(0, 500),
+      ms: Date.now() - t0,
+    }, 500)
+  }
+})
+
 app.get('/publishable-sql', c => {
   const iso = c.req.query('isoDate') ?? new Date().toISOString().slice(0, 10)
   const sql = buildPublishableSql({
