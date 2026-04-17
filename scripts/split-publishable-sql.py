@@ -52,17 +52,21 @@ def main() -> int:
         "set +e",
         "failed=0",
         "succeeded=0",
-        "PREAMBLE=" + json.dumps(preamble),
     ]
 
     for i, chunk in enumerate(chunks):
         match = re.search(r"TO\s+'([^']+)'", chunk)
         label = match.group(1) if match else f"statement-{i}"
         lines.append(f'echo "::group::COPY {label}"')
-        lines.append("duckdb :memory: <<SQL")
-        lines.append("$PREAMBLE")
+        # Unquoted heredoc so DuckDB sees real multi-line SQL. The
+        # preamble and chunk are inlined with actual newlines (no JSON
+        # string escape). We use a unique terminator per statement in
+        # case a chunk ever contains the default "SQL" marker.
+        heredoc = f"SQL_{i}"
+        lines.append(f"duckdb :memory: <<'{heredoc}'")
+        lines.append(preamble)
         lines.append(chunk + ";")
-        lines.append("SQL")
+        lines.append(heredoc)
         lines.append("rc=$?")
         lines.append('echo "exit code: $rc"')
         lines.append("if [[ $rc -ne 0 ]]; then failed=$((failed + 1)); else succeeded=$((succeeded + 1)); fi")
